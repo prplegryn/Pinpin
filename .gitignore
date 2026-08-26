@@ -1,0 +1,22 @@
+# Gradle / Android Studio
+.gradle/
+build/
+**/build/
+.idea/
+*.iml
+local.properties
+
+# Native / generated output
+.externalNativeBuild/
+.cxx/
+captures/
+
+# Signing material is kept in GitHub Actions secrets.
+.signing/
+*.jks
+*.keystore
+*.p12
+
+# OS files
+.DS_Store
+Thumbs.db
