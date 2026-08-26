@@ -223,7 +223,8 @@ class PinpinViewModel(
 
     fun setPinned(conversation: ConversationEntity) {
         viewModelScope.launch {
-            repository.setPinned(conversation.id, !conversation.isPinned)
+            runCatching { repository.setPinned(conversation.id, !conversation.isPinned) }
+                .onFailure { mutableNotice.value = "置顶状态保存失败，请重试" }
         }
     }
 
@@ -242,14 +243,22 @@ class PinpinViewModel(
 
     fun deleteConversation(conversationId: Long) {
         viewModelScope.launch {
-            if (mutableConversationId.value == conversationId) {
+            val deletingCurrent = mutableConversationId.value == conversationId
+            if (deletingCurrent) {
                 cancelActiveRequest(CancelReason.Delete)
                 selectionTouched = true
                 setConversationId(null)
                 updateComposerDraft("")
                 roleOverride.value = null
             }
-            repository.delete(conversationId)
+            val deleted = runCatching { repository.delete(conversationId) }.isSuccess
+            if (!deleted) {
+                if (deletingCurrent && repository.conversation(conversationId) != null) {
+                    setConversationId(conversationId)
+                }
+                mutableNotice.value = "删除对话失败，请重试"
+                return@launch
+            }
             if (mutableConversationId.value == null) {
                 setConversationId(repository.firstConversationId())
             }
@@ -259,6 +268,7 @@ class PinpinViewModel(
     }
 
     fun clearAllConversations() {
+        val previousConversationId = mutableConversationId.value
         cancelActiveRequest(CancelReason.Delete)
         selectionTouched = true
         setConversationId(null)
@@ -270,8 +280,16 @@ class PinpinViewModel(
         mutableCanRetry.value = false
         mutableNeedsSettings.value = false
         viewModelScope.launch {
-            runCatching { repository.deleteAll() }
-                .onFailure { mutableNotice.value = "清除对话失败，请重试" }
+            val cleared = runCatching { repository.deleteAll() }.isSuccess
+            if (!cleared) {
+                if (
+                    previousConversationId != null &&
+                    repository.conversation(previousConversationId) != null
+                ) {
+                    setConversationId(previousConversationId)
+                }
+                mutableNotice.value = "清除对话失败，请重试"
+            }
         }
     }
 
@@ -281,7 +299,10 @@ class PinpinViewModel(
         runCatching { settingsStore.updateActiveRole(roleId) }
             .onFailure { mutableNotice.value = "角色保存失败，请重试" }
         conversationId?.let { id ->
-            viewModelScope.launch { repository.setRole(id, roleId) }
+            viewModelScope.launch {
+                runCatching { repository.setRole(id, roleId) }
+                    .onFailure { mutableNotice.value = "会话角色保存失败，请重试" }
+            }
         }
     }
 
@@ -389,6 +410,7 @@ class PinpinViewModel(
                 throw cancelled
             } catch (error: Throwable) {
                 if (activeRequest === control) {
+                    updateComposerDraft(normalizedText)
                     mutableNotice.value = "消息无法保存，请稍后重试"
                 }
             } finally {
@@ -568,7 +590,7 @@ class PinpinViewModel(
                     )
                 }
                 if (cancelledByUser && activeRequest === control) {
-                    mutableNotice.value = "已停止"
+                    mutableNotice.value = null
                     mutableCanRetry.value = false
                     mutableNeedsSettings.value = false
                 }
@@ -667,6 +689,6 @@ class PinpinViewModel(
         const val HISTORY_SEARCH_DEBOUNCE_MILLIS = 180L
         const val COMPOSER_DRAFT_KEY = "composer_draft"
         const val CURRENT_CONVERSATION_KEY = "current_conversation"
-        val SETTINGS_ERROR_CODES = setOf(401, 403, 404)
+        val SETTINGS_ERROR_CODES = setOf(400, 401, 403, 404, 422)
     }
 }

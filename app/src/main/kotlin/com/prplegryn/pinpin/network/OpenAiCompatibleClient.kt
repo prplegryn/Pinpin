@@ -105,6 +105,12 @@ class OpenAiCompatibleClient {
         activeConnection.set(connection)
         return try {
             val status = connection.responseCode
+            if (status == 404) {
+                throw ApiClientException(
+                    "服务未提供模型列表；仍可手动填写模型 ID 后保存",
+                    status
+                )
+            }
             if (status !in 200..299) throw responseError(connection, status)
             val body = readLimited(connection.inputStream, MAX_RESPONSE_CHARS)
             val models = runCatching {
@@ -243,13 +249,17 @@ class OpenAiCompatibleClient {
         val serviceMessage = runCatching {
             JSONObject(body).optJSONObject("error")?.optString("message")
         }.getOrNull()?.takeIf { it.isNotBlank() }
-        val message = serviceMessage ?: when (status) {
+        val message = when (status) {
+            400, 422 -> buildString {
+                append(serviceMessage ?: "请求参数不被服务接受")
+                append("；可尝试关闭流式显示或温度参数")
+            }
             401, 403 -> "API 密钥无效或没有访问权限"
             404 -> "接口不存在，请检查 API 地址"
             408, 504 -> "服务响应超时"
             429 -> "请求过于频繁或额度不足"
             in 500..599 -> "服务暂时不可用（$status）"
-            else -> "请求失败（$status）"
+            else -> serviceMessage ?: "请求失败（$status）"
         }
         return ApiClientException(message.take(300), status)
     }

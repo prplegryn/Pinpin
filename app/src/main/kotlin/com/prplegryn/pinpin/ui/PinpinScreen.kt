@@ -8,6 +8,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -2053,6 +2054,7 @@ private fun SheetAction(
 ) {
     val shape = RoundedCornerShape(24.dp)
     val interactionSource = remember { MutableInteractionSource() }
+    val safeInset = 24.dp + with(LocalDensity.current) { 2.toDp() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2067,7 +2069,7 @@ private fun SheetAction(
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = safeInset),
         verticalAlignment = Alignment.CenterVertically
     ) {
         PinpinIcon(icon, Modifier.size(21.dp), color)
@@ -2525,6 +2527,7 @@ private fun ModelChip(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val safeInset = 20.dp + with(LocalDensity.current) { 2.toDp() }
     val background by animateColorAsState(
         targetValue = if (selected) Color(0xFFE4F0FE) else Color.White,
         animationSpec = PinpinMotion.standardTween(),
@@ -2548,7 +2551,7 @@ private fun ModelChip(
                 role = Role.RadioButton,
                 onClick = onClick
             )
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = safeInset),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AnimatedVisibility(
