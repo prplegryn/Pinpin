@@ -34,7 +34,7 @@ Release 筿名与密钥通过四个 GitHub Actions secrets 注入：
 - Android Gradle Plugin 9.3.2 / Gradle 9.7.1
 - Kotlin 2.4.10 / Compose 1.12.0
 - Backdrop 2.0.1 / Kyant Shapes 1.2.1
-- minSdk 23 / targetSdk 37
+- minSdk 23 / targetSdk 36
 
 玻璃参数参考了 Backdrop 的 [Get started](https://kyant.gitbook.io/backdrop) 文档与官方 `LiquidButton` 示例；该库只提供底层效果，本仓库的高层控件与自适应输入行为均在项目内实现。
 

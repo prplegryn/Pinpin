@@ -16,13 +16,13 @@ val hasReleaseSigning = listOf(
 
 android {
     namespace = "com.prplegryn.pinpin"
-    compileSdk = 37
-    buildToolsVersion = "37.0.0"
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.prplegryn.pinpin"
         minSdk = 23
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
