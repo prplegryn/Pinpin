@@ -262,8 +262,11 @@ class PinpinViewModel(
             if (mutableConversationId.value == null) {
                 setConversationId(repository.firstConversationId())
             }
-            mutableCanRetry.value = false
-            mutableNeedsSettings.value = false
+            if (deletingCurrent || lastFailedConversationId == conversationId) {
+                lastFailedConversationId = null
+                mutableCanRetry.value = false
+                mutableNeedsSettings.value = false
+            }
         }
     }
 

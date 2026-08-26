@@ -63,6 +63,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -101,6 +103,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -531,7 +534,6 @@ private fun PinpinScreen(
             onConfirm = {
                 pendingClearAll = false
                 viewModel.clearAllConversations()
-                page = AppPage.Chat
             }
         )
 
@@ -1136,7 +1138,8 @@ private fun BoxScope.AdaptiveComposer(
             modifier = Modifier
                 .weight(1f)
                 .onFocusChanged { composerFocused = it.isFocused }
-                .heightIn(min = 42.dp, max = 102.dp),
+                .heightIn(min = 42.dp, max = 102.dp)
+                .semantics { contentDescription = "消息" },
             textStyle = ComposerInputStyle,
             cursorBrush = ComposerCursorBrush,
             minLines = 1,
@@ -1581,7 +1584,8 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
             onValueChange = onQueryChange,
             modifier = Modifier
                 .weight(1f)
-                .fillMaxHeight(),
+                .fillMaxHeight()
+                .semantics { contentDescription = "搜索对话" },
             singleLine = true,
             textStyle = BodyTextStyle,
             cursorBrush = ComposerCursorBrush,
@@ -1634,14 +1638,23 @@ private fun HistoryRow(
                 onLongClick = onLongClick,
                 onClick = onClick
             )
+            .semantics { this.selected = selected }
             .padding(horizontal = 22.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (conversation.isPinned) {
-                    PinpinIcon(PinpinIcon.Pin, Modifier.size(13.dp), Accent)
-                    Spacer(Modifier.width(6.dp))
+                AnimatedVisibility(
+                    visible = conversation.isPinned,
+                    enter = fadeIn(PinpinMotion.quickTween()) +
+                        scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.5f),
+                    exit = fadeOut(PinpinMotion.quickTween()) +
+                        scaleOut(PinpinMotion.quickTween(), targetScale = 0.6f)
+                ) {
+                    Row {
+                        PinpinIcon(PinpinIcon.Pin, Modifier.size(13.dp), Accent)
+                        Spacer(Modifier.width(6.dp))
+                    }
                 }
                 BasicText(
                     conversation.title,
@@ -1749,7 +1762,8 @@ private fun BoxScope.RolePickerSheet(
                     .background(roleBackground)
                     .border(0.7.dp, if (selected) Accent.copy(alpha = 0.3f) else ThinBorder, shape)
                     .pinpinPressFeedback(interactionSource, pressedScale = 0.98f)
-                    .clickable(
+                    .selectable(
+                        selected = selected,
                         interactionSource = interactionSource,
                         indication = null,
                         role = Role.RadioButton,
@@ -1929,7 +1943,8 @@ private fun BoxScope.RenameConversationDialog(
                         if (error) Destructive.copy(alpha = 0.7f) else ThinBorder,
                         fieldShape
                     )
-                    .padding(horizontal = 22.dp),
+                    .padding(horizontal = 22.dp)
+                    .semantics { contentDescription = "对话名称" },
                 singleLine = true,
                 textStyle = BodyTextStyle,
                 cursorBrush = ComposerCursorBrush,
@@ -2397,13 +2412,25 @@ private fun BoxScope.SettingsPage(
                 color = Destructive
             )
         }
-        val feedback = localError ?: localSuccess ?: connectionTest.result
-        if (feedback != null) {
-            Spacer(Modifier.height(14.dp))
-            InlineFeedback(
-                feedback,
-                localSuccess != null || (localError == null && connectionTest.successful)
-            )
+        val feedbackText = localError ?: localSuccess ?: connectionTest.result
+        val feedback = feedbackText?.let {
+            it to (localSuccess != null || (localError == null && connectionTest.successful))
+        }
+        val retainedFeedback = retainForExit(feedback)
+        AnimatedVisibility(
+            visible = feedback != null,
+            enter = fadeIn(PinpinMotion.standardTween()) +
+                slideInVertically(PinpinMotion.standardTween()) { -it / 3 },
+            exit = fadeOut(PinpinMotion.quickTween()) +
+                slideOutVertically(PinpinMotion.quickTween()) { -it / 3 }
+        ) {
+            Column {
+                Spacer(Modifier.height(14.dp))
+                InlineFeedback(
+                    retainedFeedback?.first.orEmpty(),
+                    retainedFeedback?.second == true
+                )
+            }
         }
         Spacer(Modifier.height(18.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2485,11 +2512,12 @@ private fun SettingsToggle(
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .pinpinPressFeedback(interactionSource, pressedScale = 0.99f)
-            .clickable(
+            .toggleable(
+                value = checked,
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.Switch,
-                onClick = { onCheckedChange(!checked) }
+                onValueChange = onCheckedChange
             )
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2506,7 +2534,6 @@ private fun SettingsToggle(
                 .height(28.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(trackColor)
-                .semantics { contentDescription = title }
         ) {
             Box(
                 Modifier
@@ -2545,7 +2572,8 @@ private fun ModelChip(
                 RoundedCornerShape(20.dp)
             )
             .pinpinPressFeedback(interactionSource, pressedScale = 0.96f)
-            .clickable(
+            .selectable(
+                selected = selected,
                 interactionSource = interactionSource,
                 indication = null,
                 role = Role.RadioButton,
@@ -2610,7 +2638,8 @@ private fun SettingField(
             modifier = Modifier
                 .weight(1f)
                 .heightIn(min = if (minLines > 1) 112.dp else 56.dp)
-                .padding(vertical = if (minLines > 1) 17.dp else 0.dp),
+                .padding(vertical = if (minLines > 1) 17.dp else 0.dp)
+                .semantics { contentDescription = label },
             singleLine = maxLines == 1,
             minLines = minLines,
             maxLines = maxLines,
@@ -2683,13 +2712,24 @@ private fun SettingsButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        BasicText(
-            label,
-            style = BodyTextStyle.copy(
-                color = if (filled) Color.White else PrimaryText,
-                fontWeight = FontWeight.SemiBold
+        AnimatedContent(
+            targetState = label,
+            transitionSpec = {
+                (fadeIn(PinpinMotion.standardTween()) +
+                    slideInVertically(PinpinMotion.standardTween()) { it / 3 }) togetherWith
+                    (fadeOut(PinpinMotion.quickTween()) +
+                        slideOutVertically(PinpinMotion.quickTween()) { -it / 3 })
+            },
+            label = "settings button label"
+        ) { animatedLabel ->
+            BasicText(
+                animatedLabel,
+                style = BodyTextStyle.copy(
+                    color = if (filled) Color.White else PrimaryText,
+                    fontWeight = FontWeight.SemiBold
+                )
             )
-        )
+        }
     }
 }
 
@@ -2738,7 +2778,18 @@ private fun IconTouchButton(
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
-        PinpinIcon(icon, Modifier.size(19.dp), SecondaryText)
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = {
+                (fadeIn(PinpinMotion.quickTween()) +
+                    scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.65f)) togetherWith
+                    (fadeOut(PinpinMotion.quickTween()) +
+                        scaleOut(PinpinMotion.quickTween(), targetScale = 0.7f))
+            },
+            label = "icon action"
+        ) { animatedIcon ->
+            PinpinIcon(animatedIcon, Modifier.size(19.dp), SecondaryText)
+        }
     }
 }
 
