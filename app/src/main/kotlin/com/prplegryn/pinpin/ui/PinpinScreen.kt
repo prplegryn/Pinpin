@@ -5,6 +5,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -115,6 +117,44 @@ private val Inter = FontFamily(
     Font(R.font.inter_semibold, FontWeight.SemiBold),
     Font(R.font.inter_bold, FontWeight.Bold)
 )
+private val TitleTextStyle = TextStyle(
+    color = PrimaryText,
+    fontSize = 15.sp,
+    fontWeight = FontWeight.SemiBold,
+    fontFamily = Inter
+)
+private val SubtitleTextStyle = TextStyle(
+    color = SecondaryText,
+    fontSize = 11.sp,
+    fontWeight = FontWeight.Medium,
+    fontFamily = Inter
+)
+private val ComposerInputStyle = TextStyle(
+    color = ComposerText,
+    fontSize = 16.sp,
+    lineHeight = 21.sp,
+    fontWeight = FontWeight.Normal,
+    fontFamily = Inter
+)
+private val ComposerPlaceholderStyle = TextStyle(
+    color = ComposerSecondary,
+    fontSize = 16.sp,
+    fontFamily = Inter
+)
+private val ComposerCursorBrush = SolidColor(Accent)
+private val ComposerKeyboardOptions = KeyboardOptions(
+    capitalization = KeyboardCapitalization.Sentences,
+    imeAction = ImeAction.Send
+)
+private val AvatarBrush = Brush.linearGradient(
+    listOf(Color(0xFF4BC7E8), Color(0xFF636EDB), Color(0xFFC26AD8))
+)
+private val AvatarTextStyle = TextStyle(
+    color = Color.White,
+    fontSize = 19.sp,
+    fontWeight = FontWeight.Bold,
+    fontFamily = Inter
+)
 
 @Composable
 fun PinpinApp() {
@@ -129,9 +169,11 @@ private fun PinpinScreen() {
     val keyboardController = LocalSoftwareKeyboardController.current
     var subtitle by remember { mutableStateOf("新的对话") }
 
-    val dismissInput = {
-        keyboardController?.hide()
-        focusManager.clearFocus(force = true)
+    val dismissInput = remember(keyboardController, focusManager) {
+        {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+        }
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
@@ -230,6 +272,49 @@ private fun BoxScope.TopBar(
 }
 
 @Composable
+private fun rememberLiquidGlassVisualModifier(
+    backdrop: Backdrop,
+    glassShape: Shape,
+    shadowShape: Shape,
+    interactiveHighlight: InteractiveHighlight
+): Modifier = remember(backdrop, glassShape, shadowShape, interactiveHighlight) {
+    Modifier
+        .appleAmbientShadow(
+            shape = shadowShape,
+            radius = 18.dp,
+            alpha = 0.13f
+        )
+        .drawBackdrop(
+            backdrop = backdrop,
+            shape = { glassShape },
+            effects = {
+                vibrancy()
+                blur(2.dp.toPx())
+                lens(12.dp.toPx(), 24.dp.toPx())
+            },
+            shadow = null,
+            layerBlock = {
+                val progress = interactiveHighlight.pressProgress
+                val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
+                val maxOffset = size.minDimension
+                val offset = interactiveHighlight.offset
+                translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+                translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+
+                val maxDragScale = 4.dp.toPx() / size.height
+                val offsetAngle = atan2(offset.y, offset.x)
+                scaleX = scale + maxDragScale *
+                    abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                    (size.width / size.height).fastCoerceAtMost(1f)
+                scaleY = scale + maxDragScale *
+                    abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                    (size.height / size.width).fastCoerceAtMost(1f)
+            },
+            onDrawSurface = { drawRect(Color.White.copy(alpha = 0.075f)) }
+        )
+}
+
+@Composable
 private fun GlassIconButton(
     backdrop: Backdrop,
     icon: PinpinIcon,
@@ -241,45 +326,17 @@ private fun GlassIconButton(
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope)
     }
+    val glassVisualModifier = rememberLiquidGlassVisualModifier(
+        backdrop = backdrop,
+        glassShape = shape,
+        shadowShape = CircleShape,
+        interactiveHighlight = interactiveHighlight
+    )
 
     Box(
         modifier = Modifier
             .size(52.dp)
-            .appleAmbientShadow(
-                shape = CircleShape,
-                radius = 18.dp,
-                alpha = 0.13f
-            )
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx())
-                },
-                shadow = null,
-                layerBlock = {
-                    val progress = interactiveHighlight.pressProgress
-                    val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
-                    val maxOffset = size.minDimension
-                    val offset = interactiveHighlight.offset
-                    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
-                    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
-
-                    val maxDragScale = 4.dp.toPx() / size.height
-                    val offsetAngle = atan2(offset.y, offset.x)
-                    scaleX = scale + maxDragScale *
-                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-                        (size.width / size.height).fastCoerceAtMost(1f)
-                    scaleY = scale + maxDragScale *
-                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-                        (size.height / size.width).fastCoerceAtMost(1f)
-                },
-                onDrawSurface = {
-                    drawRect(Color.White.copy(alpha = 0.075f))
-                }
-            )
+            .then(glassVisualModifier)
             .clickable(
                 interactionSource = null,
                 indication = null,
@@ -306,37 +363,27 @@ private fun GlassTitle(
     val shadowShape = remember { RoundedCornerShape(26.dp) }
     val density = LocalDensity.current
     val textSafetyInset = 26.dp + with(density) { 2.toDp() }
-    val titleStyle = TextStyle(
-        color = PrimaryText,
-        fontSize = 15.sp,
-        fontWeight = FontWeight.SemiBold,
-        fontFamily = Inter
-    )
-    val subtitleStyle = TextStyle(
-        color = SecondaryText,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Medium,
-        fontFamily = Inter
-    )
     val textMeasurer = rememberTextMeasurer()
-    val measuredTextWidth = maxOf(
-        textMeasurer.measure(
-            text = "Pinpin",
-            style = titleStyle,
-            softWrap = false,
-            maxLines = 1
-        ).size.width,
-        textMeasurer.measure(
-            text = subtitle,
-            style = subtitleStyle,
-            softWrap = false,
-            maxLines = 1
-        ).size.width
-    )
+    val measuredTextWidth = remember(textMeasurer, subtitle) {
+        maxOf(
+            textMeasurer.measure(
+                text = "Pinpin",
+                style = TitleTextStyle,
+                softWrap = false,
+                maxLines = 1
+            ).size.width,
+            textMeasurer.measure(
+                text = subtitle,
+                style = SubtitleTextStyle,
+                softWrap = false,
+                maxLines = 1
+            ).size.width
+        )
+    }
     val targetWidth = (
         6.dp + 40.dp + 10.dp + with(density) { measuredTextWidth.toDp() } + textSafetyInset
     ).coerceIn(120.dp, maximumWidth)
-    val animatedWidth by animateDpAsState(
+    val animatedWidth = animateDpAsState(
         targetValue = targetWidth,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 360f),
         label = "title capsule width"
@@ -345,44 +392,17 @@ private fun GlassTitle(
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope)
     }
+    val glassVisualModifier = rememberLiquidGlassVisualModifier(
+        backdrop = backdrop,
+        glassShape = shape,
+        shadowShape = shadowShape,
+        interactiveHighlight = interactiveHighlight
+    )
 
     Layout(
         modifier = Modifier
-            .width(animatedWidth)
             .height(52.dp)
-            .appleAmbientShadow(
-                shape = shadowShape,
-                radius = 18.dp,
-                alpha = 0.13f
-            )
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx())
-                },
-                shadow = null,
-                layerBlock = {
-                    val progress = interactiveHighlight.pressProgress
-                    val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
-                    val maxOffset = size.minDimension
-                    val offset = interactiveHighlight.offset
-                    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
-                    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
-
-                    val maxDragScale = 4.dp.toPx() / size.height
-                    val offsetAngle = atan2(offset.y, offset.x)
-                    scaleX = scale + maxDragScale *
-                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-                        (size.width / size.height).fastCoerceAtMost(1f)
-                    scaleY = scale + maxDragScale *
-                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-                        (size.height / size.width).fastCoerceAtMost(1f)
-                },
-                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.075f)) }
-            )
+            .then(glassVisualModifier)
             .clickable(
                 interactionSource = null,
                 indication = null,
@@ -406,26 +426,13 @@ private fun GlassTitle(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    Color(0xFF4BC7E8),
-                                    Color(0xFF636EDB),
-                                    Color(0xFFC26AD8)
-                                )
-                            )
-                        )
+                        .background(AvatarBrush)
                         .border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     BasicText(
                         text = "P",
-                        style = TextStyle(
-                            color = Color.White,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = Inter
-                        )
+                        style = AvatarTextStyle
                     )
                 }
 
@@ -437,14 +444,14 @@ private fun GlassTitle(
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis,
-                        style = titleStyle
+                        style = TitleTextStyle
                     )
                     BasicText(
                         text = subtitle,
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis,
-                        style = subtitleStyle
+                        style = SubtitleTextStyle
                     )
                 }
             }
@@ -456,7 +463,9 @@ private fun GlassTitle(
         val content = measurables.single().measure(
             Constraints.fixed(targetWidth.roundToPx(), 52.dp.roundToPx())
         )
-        layout(constraints.maxWidth, constraints.maxHeight) {
+        val layoutWidth = constraints.constrainWidth(animatedWidth.value.roundToPx())
+        val layoutHeight = constraints.constrainHeight(52.dp.roundToPx())
+        layout(layoutWidth, layoutHeight) {
             content.placeRelative(0, 0)
         }
     }
@@ -468,20 +477,15 @@ private fun BoxScope.AdaptiveComposer(
     onDismissInput: () -> Unit,
     onSend: (String) -> Unit
 ) {
-    var text by remember { mutableStateOf("") }
+    val textState = remember { mutableStateOf("") }
     var imeHasOpened by remember { mutableStateOf(false) }
-    val canSend = text.isNotBlank()
     val density = LocalDensity.current
-    val imeBottom = WindowInsets.ime.getBottom(density)
     val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
 
-    // imeAnimationTarget changes at the beginning of an IME transition. Using
-    // it avoids waiting for isImeVisible to turn false at the end of dismissal.
-    val keyboardExpanded = if (imeTargetBottom != imeBottom) {
-        imeTargetBottom > 0
-    } else {
-        imeBottom > 0
-    }
+    // imeAnimationTarget changes once at the beginning of the transition. Do
+    // not observe the current IME bottom here: it changes on every animation
+    // frame and would recompose the entire editor tree.
+    val keyboardExpanded = imeTargetBottom > 0
 
     LaunchedEffect(keyboardExpanded) {
         if (keyboardExpanded) {
@@ -492,43 +496,51 @@ private fun BoxScope.AdaptiveComposer(
         }
     }
 
-    val horizontalMargin by animateDpAsState(
-        targetValue = if (keyboardExpanded) 8.dp else 18.dp,
-        animationSpec = tween(durationMillis = 130),
-        label = "composer horizontal margin"
-    )
-    val bottomMargin by animateDpAsState(
-        targetValue = if (keyboardExpanded) 7.dp else 12.dp,
-        animationSpec = tween(durationMillis = 130),
-        label = "composer bottom margin"
-    )
-    val minimumHeight by animateDpAsState(
-        targetValue = if (keyboardExpanded) 56.dp else 64.dp,
-        animationSpec = tween(durationMillis = 130),
-        label = "composer minimum height"
-    )
-    val cornerRadius by animateDpAsState(
-        targetValue = if (keyboardExpanded) 28.dp else 32.dp,
-        animationSpec = tween(durationMillis = 130),
-        label = "composer corner radius"
-    )
-    val edgePadding by animateDpAsState(
-        targetValue = if (keyboardExpanded) 7.dp else 11.dp,
-        animationSpec = tween(durationMillis = 130),
-        label = "composer concentric padding"
-    )
     // edgePadding and the corner radius differ by 21dp in both IME states.
     // Adding this inset places the text past the left arc's tangent, plus 2px.
     val textStartPadding = 21.dp + with(density) { 2.toDp() }
-
-    fun send() {
-        val message = text.trim()
-        if (message.isEmpty()) return
-        onSend(message)
-        text = ""
-        onDismissInput()
+    val updateText = remember {
+        { value: String -> textState.value = value.take(2000) }
+    }
+    val send = remember(onDismissInput, onSend) {
+        {
+            val message = textState.value.trim()
+            if (message.isNotEmpty()) {
+                onSend(message)
+                textState.value = ""
+                onDismissInput()
+            }
+        }
     }
 
+    ComposerSurface(keyboardExpanded = keyboardExpanded) {
+        ComposerEditor(
+            text = textState.value,
+            keyboardExpanded = keyboardExpanded,
+            textStartPadding = textStartPadding,
+            onTextChange = updateText,
+            onSend = send
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.ComposerSurface(
+    keyboardExpanded: Boolean,
+    content: @Composable RowScope.() -> Unit
+) {
+    // One animation clock drives every geometric change, keeping all values in
+    // phase and replacing five independent animation states.
+    val progress by animateFloatAsState(
+        targetValue = if (keyboardExpanded) 1f else 0f,
+        animationSpec = tween(durationMillis = 130),
+        label = "composer IME geometry"
+    )
+    val horizontalMargin = 18.dp + (8.dp - 18.dp) * progress
+    val bottomMargin = 12.dp + (7.dp - 12.dp) * progress
+    val minimumHeight = 64.dp + (56.dp - 64.dp) * progress
+    val cornerRadius = 32.dp + (28.dp - 32.dp) * progress
+    val edgePadding = 11.dp + (7.dp - 11.dp) * progress
     val shape = RoundedCornerShape(cornerRadius)
 
     Row(
@@ -548,70 +560,67 @@ private fun BoxScope.AdaptiveComposer(
             .background(Color.White)
             .border(0.75.dp, Color(0xFFCCD7E5).copy(alpha = 0.72f), shape)
             .padding(edgePadding),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        BasicTextField(
-            value = text,
-            onValueChange = { text = it.take(2000) },
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 42.dp, max = 102.dp),
-            textStyle = TextStyle(
-                color = ComposerText,
-                fontSize = 16.sp,
-                lineHeight = 21.sp,
-                fontWeight = FontWeight.Normal,
-                fontFamily = Inter
-            ),
-            cursorBrush = SolidColor(Accent),
-            minLines = 1,
-            maxLines = 4,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
-                imeAction = ImeAction.Send
-            ),
-            keyboardActions = KeyboardActions(onSend = { send() }),
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = textStartPadding,
-                            end = 8.dp,
-                            top = 9.dp,
-                            bottom = 9.dp
-                        ),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (text.isEmpty()) {
-                        BasicText(
-                            text = if (keyboardExpanded) "输入消息…" else "说点什么…",
-                            style = TextStyle(
-                                color = ComposerSecondary,
-                                fontSize = 16.sp,
-                                fontFamily = Inter
-                            )
-                        )
-                    }
-                    innerTextField()
-                }
-            }
-        )
+        verticalAlignment = Alignment.Bottom,
+        content = content
+    )
+}
 
-        AnimatedVisibility(
-            visible = canSend,
-            modifier = Modifier.padding(start = 8.dp),
-            enter = fadeIn(tween(120)) + scaleIn(
-                animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
-                initialScale = 0.82f
-            ),
-            exit = fadeOut(tween(90)) + scaleOut(
-                animationSpec = tween(110),
-                targetScale = 0.82f
-            )
-        ) {
-            ComposerButton(onClick = { send() })
+@Composable
+private fun RowScope.ComposerEditor(
+    text: String,
+    keyboardExpanded: Boolean,
+    textStartPadding: Dp,
+    onTextChange: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    BasicTextField(
+        value = text,
+        onValueChange = onTextChange,
+        modifier = Modifier
+            .weight(1f)
+            .heightIn(min = 42.dp, max = 102.dp),
+        textStyle = ComposerInputStyle,
+        cursorBrush = ComposerCursorBrush,
+        minLines = 1,
+        maxLines = 4,
+        keyboardOptions = ComposerKeyboardOptions,
+        keyboardActions = KeyboardActions(onSend = { onSend() }),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = textStartPadding,
+                        end = 8.dp,
+                        top = 9.dp,
+                        bottom = 9.dp
+                    ),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (text.isEmpty()) {
+                    BasicText(
+                        text = if (keyboardExpanded) "输入消息…" else "说点什么…",
+                        style = ComposerPlaceholderStyle
+                    )
+                }
+                innerTextField()
+            }
         }
+    )
+
+    AnimatedVisibility(
+        visible = text.isNotBlank(),
+        modifier = Modifier.padding(start = 8.dp),
+        enter = fadeIn(tween(120)) + scaleIn(
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
+            initialScale = 0.82f
+        ),
+        exit = fadeOut(tween(90)) + scaleOut(
+            animationSpec = tween(110),
+            targetScale = 0.82f
+        )
+    ) {
+        ComposerButton(onClick = onSend)
     }
 }
 
@@ -658,21 +667,25 @@ private fun PinpinIcon(
 
         when (icon) {
             PinpinIcon.Menu -> {
-                listOf(0.28f, 0.5f, 0.72f).forEach { y ->
-                    drawLine(
-                        color = color,
-                        start = Offset(w * 0.22f, h * y),
-                        end = Offset(w * 0.78f, h * y),
-                        strokeWidth = strokeWidth,
-                        cap = StrokeCap.Round
-                    )
-                }
+                drawLine(
+                    color, Offset(w * 0.22f, h * 0.28f), Offset(w * 0.78f, h * 0.28f),
+                    strokeWidth, StrokeCap.Round
+                )
+                drawLine(
+                    color, Offset(w * 0.22f, h * 0.5f), Offset(w * 0.78f, h * 0.5f),
+                    strokeWidth, StrokeCap.Round
+                )
+                drawLine(
+                    color, Offset(w * 0.22f, h * 0.72f), Offset(w * 0.78f, h * 0.72f),
+                    strokeWidth, StrokeCap.Round
+                )
             }
 
             PinpinIcon.More -> {
-                listOf(0.27f, 0.5f, 0.73f).forEach { x ->
-                    drawCircle(color = color, radius = w * 0.075f, center = Offset(w * x, h * 0.5f))
-                }
+                val radius = w * 0.075f
+                drawCircle(color, radius, Offset(w * 0.27f, h * 0.5f))
+                drawCircle(color, radius, Offset(w * 0.5f, h * 0.5f))
+                drawCircle(color, radius, Offset(w * 0.73f, h * 0.5f))
             }
 
             PinpinIcon.Send -> {
