@@ -12,6 +12,15 @@ class ChatRepository(private val dao: PinpinDao) {
     fun messages(conversationId: Long): Flow<List<MessageEntity>> =
         dao.observeMessages(conversationId)
 
+    fun searchConversations(query: String): Flow<List<ConversationEntity>> =
+        dao.observeConversationSearch(
+            query.trim()
+                .take(MAX_SEARCH_CHARS)
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+        )
+
     suspend fun conversation(conversationId: Long): ConversationEntity? =
         dao.getConversation(conversationId)
 
@@ -40,8 +49,7 @@ class ChatRepository(private val dao: PinpinDao) {
     suspend fun rename(conversationId: Long, title: String) {
         dao.renameConversation(
             conversationId = conversationId,
-            title = title.replace(Regex("\\s+"), " ").trim().take(MAX_TITLE_CHARS),
-            updatedAt = System.currentTimeMillis()
+            title = title.replace(Regex("\\s+"), " ").trim().take(MAX_TITLE_CHARS)
         )
     }
 
@@ -57,5 +65,6 @@ class ChatRepository(private val dao: PinpinDao) {
 
     private companion object {
         const val MAX_TITLE_CHARS = 80
+        const val MAX_SEARCH_CHARS = 80
     }
 }

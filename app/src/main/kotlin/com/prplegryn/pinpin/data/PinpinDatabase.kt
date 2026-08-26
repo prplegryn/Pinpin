@@ -108,6 +108,16 @@ interface PinpinDao {
     @Query("SELECT * FROM conversations ORDER BY isPinned DESC, updatedAt DESC, id DESC")
     fun observeConversations(): Flow<List<ConversationEntity>>
 
+    @Query(
+        "SELECT c.* FROM conversations c WHERE " +
+            "c.title LIKE '%' || :query || '%' ESCAPE '\\' COLLATE NOCASE OR " +
+            "c.preview LIKE '%' || :query || '%' ESCAPE '\\' COLLATE NOCASE OR " +
+            "EXISTS (SELECT 1 FROM messages m WHERE m.conversationId = c.id " +
+            "AND m.content LIKE '%' || :query || '%' ESCAPE '\\' COLLATE NOCASE) " +
+            "ORDER BY c.isPinned DESC, c.updatedAt DESC, c.id DESC"
+    )
+    fun observeConversationSearch(query: String): Flow<List<ConversationEntity>>
+
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
     fun observeMessages(conversationId: Long): Flow<List<MessageEntity>>
 
@@ -173,8 +183,8 @@ interface PinpinDao {
     @Query("UPDATE conversations SET roleId = :roleId WHERE id = :conversationId")
     suspend fun setRole(conversationId: Long, roleId: String)
 
-    @Query("UPDATE conversations SET title = :title, updatedAt = :updatedAt WHERE id = :conversationId")
-    suspend fun renameConversation(conversationId: Long, title: String, updatedAt: Long)
+    @Query("UPDATE conversations SET title = :title WHERE id = :conversationId")
+    suspend fun renameConversation(conversationId: Long, title: String)
 
     @Query("DELETE FROM conversations WHERE id = :conversationId")
     suspend fun deleteConversation(conversationId: Long)

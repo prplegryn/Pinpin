@@ -6,8 +6,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -57,6 +61,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,15 +83,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -98,12 +102,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -141,72 +142,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
-
-private val PrimaryText = Color(0xE6222A31)
-private val SecondaryText = Color(0xA6444F58)
-private val ComposerText = Color(0xFF172126)
-private val ComposerSecondary = Color(0xFF68737A)
-private val Accent = Color(0xFF087CFA)
-private val Destructive = Color(0xFFD94747)
-private val AmbientShadowTint = Color(0xFF7890AD)
-private val Panel = Color(0xFFF8FAFC)
-private val ThinBorder = Color(0xFFCDD7E3).copy(alpha = 0.72f)
-private val Inter = FontFamily(
-    Font(R.font.inter_regular, FontWeight.Normal),
-    Font(R.font.inter_medium, FontWeight.Medium),
-    Font(R.font.inter_semibold, FontWeight.SemiBold),
-    Font(R.font.inter_bold, FontWeight.Bold)
-)
-private val TitleTextStyle = TextStyle(
-    color = PrimaryText,
-    fontSize = 15.sp,
-    fontWeight = FontWeight.SemiBold,
-    fontFamily = Inter
-)
-private val SubtitleTextStyle = TextStyle(
-    color = SecondaryText,
-    fontSize = 11.sp,
-    fontWeight = FontWeight.Medium,
-    fontFamily = Inter
-)
-private val BodyTextStyle = TextStyle(
-    color = PrimaryText,
-    fontSize = 15.sp,
-    lineHeight = 22.sp,
-    fontFamily = Inter
-)
-private val SmallTextStyle = TextStyle(
-    color = SecondaryText,
-    fontSize = 12.sp,
-    lineHeight = 17.sp,
-    fontFamily = Inter
-)
-private val ComposerInputStyle = TextStyle(
-    color = ComposerText,
-    fontSize = 16.sp,
-    lineHeight = 21.sp,
-    fontWeight = FontWeight.Normal,
-    fontFamily = Inter
-)
-private val ComposerPlaceholderStyle = TextStyle(
-    color = ComposerSecondary,
-    fontSize = 16.sp,
-    fontFamily = Inter
-)
-private val ComposerCursorBrush = SolidColor(Accent)
-private val ComposerKeyboardOptions = KeyboardOptions(
-    capitalization = KeyboardCapitalization.Sentences,
-    imeAction = ImeAction.Send
-)
-private val AvatarBrush = Brush.linearGradient(
-    listOf(Color(0xFF4BC7E8), Color(0xFF636EDB), Color(0xFFC26AD8))
-)
-private val AvatarTextStyle = TextStyle(
-    color = Color.White,
-    fontSize = 19.sp,
-    fontWeight = FontWeight.Bold,
-    fontFamily = Inter
-)
+import kotlin.math.PI
 
 private enum class AppPage { Chat, Settings }
 
@@ -221,9 +157,17 @@ private data class HistorySection(
     val conversations: List<ConversationEntity>
 )
 
+private data class ChatTextBlock(
+    val text: String,
+    val code: Boolean,
+    val language: String = ""
+)
+
 @Composable
 fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    val historySearch by viewModel.historySearch.collectAsStateWithLifecycle()
+    val historyQuery by viewModel.historyQuery.collectAsStateWithLifecycle()
     val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
     val currentConversationId by viewModel.currentConversationId.collectAsStateWithLifecycle()
     val currentRoleId by viewModel.currentRoleId.collectAsStateWithLifecycle()
@@ -238,6 +182,9 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
     PinpinScreen(
         viewModel = viewModel,
         conversations = conversations,
+        historyResults = if (historyQuery.isBlank()) conversations else historySearch.results,
+        historySearching = historyQuery.isNotBlank() && historySearch.query != historyQuery,
+        historyQuery = historyQuery,
         currentConversation = currentConversation,
         currentConversationId = currentConversationId,
         currentRoleId = currentRoleId,
@@ -256,6 +203,9 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
 private fun PinpinScreen(
     viewModel: PinpinViewModel,
     conversations: List<ConversationEntity>,
+    historyResults: List<ConversationEntity>,
+    historyQuery: String,
+    historySearching: Boolean,
     currentConversation: ConversationEntity?,
     currentConversationId: Long?,
     currentRoleId: String,
@@ -282,6 +232,10 @@ private fun PinpinScreen(
     var pendingClearAll by rememberSaveable { mutableStateOf(false) }
     var copiedFeedback by remember { mutableStateOf(false) }
     val roles = remember(settings) { RoleProfile.all(settings) }
+    val retainedHistoryAction = retainForExit(historyAction)
+    val retainedMessageAction = retainForExit(messageAction)
+    val retainedRename = retainForExit(pendingRename)
+    val retainedDelete = retainForExit(pendingDelete)
 
     val dismissInput = remember(keyboardController, focusManager) {
         {
@@ -455,7 +409,10 @@ private fun PinpinScreen(
 
                     ConversationDrawer(
                         visible = drawerOpen,
-                        conversations = conversations,
+                        conversations = historyResults,
+                        query = historyQuery,
+                        searching = historySearching,
+                        onQueryChange = viewModel::updateHistoryQuery,
                         currentConversationId = currentConversationId,
                         onDismiss = {
                             dismissInput()
@@ -505,8 +462,9 @@ private fun PinpinScreen(
             }
         )
 
-        historyAction?.let { conversation ->
+        retainedHistoryAction?.let { conversation ->
             HistoryActionSheet(
+                visible = historyAction != null,
                 conversation = conversation,
                 onDismiss = { historyAction = null },
                 onTogglePin = {
@@ -524,8 +482,9 @@ private fun PinpinScreen(
             )
         }
 
-        messageAction?.let { target ->
+        retainedMessageAction?.let { target ->
             MessageActionSheet(
+                visible = messageAction != null,
                 target = target,
                 onDismiss = { messageAction = null },
                 onCopy = {
@@ -540,8 +499,9 @@ private fun PinpinScreen(
             )
         }
 
-        pendingRename?.let { conversation ->
+        retainedRename?.let { conversation ->
             RenameConversationDialog(
+                visible = pendingRename != null,
                 conversation = conversation,
                 onDismiss = { pendingRename = null },
                 onConfirm = { title ->
@@ -552,8 +512,9 @@ private fun PinpinScreen(
             )
         }
 
-        pendingDelete?.let { conversation ->
+        retainedDelete?.let { conversation ->
             DeleteConfirmation(
+                visible = pendingDelete != null,
                 title = conversation.title,
                 onDismiss = { pendingDelete = null },
                 onConfirm = {
@@ -562,22 +523,33 @@ private fun PinpinScreen(
                 }
             )
         }
-
-
-        if (pendingClearAll) {
-            ClearHistoryConfirmation(
-                count = conversations.size,
-                onDismiss = { pendingClearAll = false },
-                onConfirm = {
-                    pendingClearAll = false
-                    viewModel.clearAllConversations()
-                    page = AppPage.Chat
-                }
-            )
-        }
+        ClearHistoryConfirmation(
+            visible = pendingClearAll,
+            count = conversations.size,
+            onDismiss = { pendingClearAll = false },
+            onConfirm = {
+                pendingClearAll = false
+                viewModel.clearAllConversations()
+                page = AppPage.Chat
+            }
+        )
 
         TransientToast(visible = copiedFeedback, text = "已复制")
     }
+}
+
+@Composable
+private fun <T> retainForExit(value: T?): T? {
+    var retained by remember { mutableStateOf(value) }
+    LaunchedEffect(value) {
+        if (value != null) {
+            retained = value
+        } else {
+            delay(PinpinMotion.Standard.toLong())
+            retained = null
+        }
+    }
+    return value ?: retained
 }
 
 @Composable
@@ -670,9 +642,10 @@ private fun BoxScope.MessageList(
             streamingReply?.let { reply ->
                 item(key = "streaming-${reply.conversationId}") {
                     MessageBubble(
-                        content = reply.text.ifEmpty { "正在连接…" },
+                        content = reply.text,
                         fromUser = false,
                         isStreaming = true,
+                        waiting = reply.text.isEmpty(),
                         modifier = Modifier.animateItem(
                             fadeInSpec = PinpinMotion.standardTween(),
                             fadeOutSpec = PinpinMotion.quickTween(),
@@ -708,6 +681,7 @@ private fun MessageBubble(
     fromUser: Boolean,
     status: String = MessageEntity.STATUS_COMPLETE,
     isStreaming: Boolean = false,
+    waiting: Boolean = false,
     modifier: Modifier = Modifier,
     onLongPress: (() -> Unit)? = null
 ) {
@@ -752,19 +726,18 @@ private fun MessageBubble(
                 )
                 .padding(horizontal = safeHorizontalInset, vertical = 14.dp)
         ) {
-            SelectionContainer {
-                BasicText(
-                    text = content,
-                    style = BodyTextStyle.copy(
-                        color = if (fromUser) Color.White else PrimaryText,
-                        textMotion = if (isStreaming) TextMotion.Animated else TextMotion.Static
-                    )
-                )
-            }
+            MessageContent(
+                content = content,
+                color = if (fromUser) Color.White else PrimaryText,
+                fromUser = fromUser,
+                streaming = isStreaming,
+                waiting = waiting
+            )
             if (status != MessageEntity.STATUS_COMPLETE || isStreaming) {
                 Spacer(Modifier.height(6.dp))
                 BasicText(
                     text = when {
+                        waiting -> "正在连接"
                         isStreaming -> "接收中"
                         status == MessageEntity.STATUS_STOPPED -> "已停止"
                         else -> "回复中断"
@@ -775,6 +748,108 @@ private fun MessageBubble(
                     )
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MessageContent(
+    content: String,
+    color: Color,
+    fromUser: Boolean,
+    streaming: Boolean,
+    waiting: Boolean
+) {
+    if (waiting) {
+        TypingIndicator(color)
+        return
+    }
+    if (streaming || "```" !in content) {
+        SelectionContainer {
+            BasicText(
+                text = content,
+                style = BodyTextStyle.copy(
+                    color = color,
+                    textMotion = if (streaming) TextMotion.Animated else TextMotion.Static
+                )
+            )
+        }
+        return
+    }
+
+    val blocks = remember(content) { parseChatTextBlocks(content) }
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        blocks.forEach { block ->
+            if (block.code) {
+                val shape = RoundedCornerShape(14.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(
+                            if (fromUser) Color.Black.copy(alpha = 0.16f)
+                            else Color(0xFFF0F3F7)
+                        )
+                        .border(
+                            0.6.dp,
+                            if (fromUser) Color.White.copy(alpha = 0.16f) else ThinBorder,
+                            shape
+                        )
+                        .padding(horizontal = 14.dp, vertical = 11.dp)
+                ) {
+                    if (block.language.isNotBlank()) {
+                        BasicText(
+                            block.language,
+                            style = SmallTextStyle.copy(
+                                fontSize = 10.sp,
+                                color = color.copy(alpha = 0.7f),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Spacer(Modifier.height(7.dp))
+                    }
+                    SelectionContainer {
+                        BasicText(
+                            block.text,
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            softWrap = false,
+                            style = BodyTextStyle.copy(
+                                color = color,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp
+                            )
+                        )
+                    }
+                }
+            } else if (block.text.isNotBlank()) {
+                SelectionContainer {
+                    BasicText(block.text, style = BodyTextStyle.copy(color = color))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingIndicator(color: Color) {
+    val transition = rememberInfiniteTransition(label = "waiting reply")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_100, easing = LinearEasing)
+        ),
+        label = "waiting phase"
+    )
+    Canvas(Modifier.width(34.dp).height(12.dp)) {
+        repeat(3) { index ->
+            val wave = (sin((phase - index * 0.16f) * (PI * 2f)).toFloat() + 1f) / 2f
+            drawCircle(
+                color = color.copy(alpha = 0.28f + wave * 0.64f),
+                radius = 2.5.dp.toPx(),
+                center = Offset(4.dp.toPx() + index * 12.dp.toPx(), size.height / 2f)
+            )
         }
     }
 }
@@ -1033,6 +1108,7 @@ private fun BoxScope.AdaptiveComposer(
     onStop: () -> Unit
 ) {
     var imeHasOpened by remember { mutableStateOf(false) }
+    var composerFocused by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
     val keyboardExpanded = imeTargetBottom > 0
@@ -1052,12 +1128,13 @@ private fun BoxScope.AdaptiveComposer(
         if (message.isNotEmpty() && onSend(message)) onTextChange("")
     }
 
-    ComposerSurface(keyboardExpanded = keyboardExpanded) {
+    ComposerSurface(keyboardExpanded = keyboardExpanded, focused = composerFocused) {
         BasicTextField(
             value = text,
             onValueChange = onTextChange,
             modifier = Modifier
                 .weight(1f)
+                .onFocusChanged { composerFocused = it.isFocused }
                 .heightIn(min = 42.dp, max = 102.dp),
             textStyle = ComposerInputStyle,
             cursorBrush = ComposerCursorBrush,
@@ -1109,6 +1186,7 @@ private fun BoxScope.AdaptiveComposer(
 @Composable
 private fun BoxScope.ComposerSurface(
     keyboardExpanded: Boolean,
+    focused: Boolean,
     content: @Composable RowScope.() -> Unit
 ) {
     val progress by animateFloatAsState(
@@ -1122,6 +1200,11 @@ private fun BoxScope.ComposerSurface(
     val cornerRadius = 32.dp + (28.dp - 32.dp) * progress
     val edgePadding = 11.dp + (7.dp - 11.dp) * progress
     val shape = RoundedCornerShape(cornerRadius)
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) Accent.copy(alpha = 0.32f) else ThinBorder,
+        animationSpec = PinpinMotion.standardTween(),
+        label = "composer focus border"
+    )
 
     Row(
         modifier = Modifier
@@ -1134,7 +1217,7 @@ private fun BoxScope.ComposerSurface(
             .animateContentSize(animationSpec = PinpinMotion.quickTween())
             .clip(shape)
             .background(Color.White)
-            .border(0.75.dp, ThinBorder, shape)
+            .border(if (focused) 1.dp else 0.75.dp, borderColor, shape)
             .padding(edgePadding),
         verticalAlignment = Alignment.Bottom,
         content = content
@@ -1323,6 +1406,9 @@ private fun MenuAction(
 private fun BoxScope.ConversationDrawer(
     visible: Boolean,
     conversations: List<ConversationEntity>,
+    query: String,
+    searching: Boolean,
+    onQueryChange: (String) -> Unit,
     currentConversationId: Long?,
     onDismiss: () -> Unit,
     onNewConversation: () -> Unit,
@@ -1354,7 +1440,6 @@ private fun BoxScope.ConversationDrawer(
             val drawerWidth = minOf(maxWidth * 0.88f, 372.dp)
             val drawerShape = RoundedCornerShape(topEnd = 34.dp, bottomEnd = 34.dp)
             val drawerSafeEnd = 34.dp + with(LocalDensity.current) { 2.toDp() }
-            var query by rememberSaveable { mutableStateOf("") }
             val sections = remember(conversations, query) {
                 historySections(conversations, query)
             }
@@ -1380,9 +1465,19 @@ private fun BoxScope.ConversationDrawer(
                     SolidIconButton(PinpinIcon.Add, "新对话", onNewConversation)
                 }
                 Spacer(Modifier.height(16.dp))
-                SearchField(query = query, onQueryChange = { query = it.take(80) })
+                SearchField(query = query, onQueryChange = onQueryChange)
                 Spacer(Modifier.height(16.dp))
-                if (resultCount == 0) {
+                if (searching) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        BasicText("正在搜索…", style = BodyTextStyle.copy(color = SecondaryText))
+                    }
+                } else if (resultCount == 0) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -1497,7 +1592,13 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
                 }
             }
         )
-        if (query.isNotEmpty()) {
+        AnimatedVisibility(
+            visible = query.isNotEmpty(),
+            enter = fadeIn(PinpinMotion.quickTween()) +
+                scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.7f),
+            exit = fadeOut(PinpinMotion.quickTween()) +
+                scaleOut(PinpinMotion.quickTween(), targetScale = 0.7f)
+        ) {
             IconTouchButton(PinpinIcon.Close, "清除搜索", onClick = { onQueryChange("") })
         }
     }
@@ -1680,51 +1781,66 @@ private fun BoxScope.RolePickerSheet(
 
 @Composable
 private fun BoxScope.HistoryActionSheet(
+    visible: Boolean,
     conversation: ConversationEntity,
     onDismiss: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    ModalScrim(onDismiss)
-    Column(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
-            .background(Panel)
-            .navigationBarsPadding()
-            .padding(start = 34.dp, end = 34.dp, top = 28.dp, bottom = 20.dp)
+    ModalScrim(onDismiss, visible)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically(PinpinMotion.emphasizedTween()) { it } +
+            fadeIn(PinpinMotion.standardTween()),
+        exit = slideOutVertically(PinpinMotion.standardTween()) { it } +
+            fadeOut(PinpinMotion.quickTween())
     ) {
-        BasicText(
-            conversation.title,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = TitleTextStyle.copy(fontSize = 20.sp)
-        )
-        Spacer(Modifier.height(18.dp))
-        SheetAction(
-            icon = PinpinIcon.Pin,
-            label = if (conversation.isPinned) "取消置顶" else "置顶对话",
-            onClick = onTogglePin
-        )
-        Spacer(Modifier.height(8.dp))
-        SheetAction(PinpinIcon.Edit, "重命名", onRename)
-        Spacer(Modifier.height(8.dp))
-        SheetAction(PinpinIcon.Trash, "删除对话", onDelete, Destructive)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .appleAmbientShadow(
+                    RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                    26.dp,
+                    0.14f
+                )
+                .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                .background(Panel)
+                .navigationBarsPadding()
+                .padding(start = 34.dp, end = 34.dp, top = 28.dp, bottom = 20.dp)
+        ) {
+            BasicText(
+                conversation.title,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = TitleTextStyle.copy(fontSize = 20.sp)
+            )
+            Spacer(Modifier.height(18.dp))
+            SheetAction(
+                icon = PinpinIcon.Pin,
+                label = if (conversation.isPinned) "取消置顶" else "置顶对话",
+                onClick = onTogglePin
+            )
+            Spacer(Modifier.height(8.dp))
+            SheetAction(PinpinIcon.Edit, "重命名", onRename)
+            Spacer(Modifier.height(8.dp))
+            SheetAction(PinpinIcon.Trash, "删除对话", onDelete, Destructive)
+        }
     }
 }
 
 @Composable
 private fun BoxScope.MessageActionSheet(
+    visible: Boolean,
     target: MessageActionTarget,
     onDismiss: () -> Unit,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit
 ) {
-    ModalScrim(onDismiss)
+    ModalScrim(onDismiss, visible)
     AnimatedVisibility(
-        visible = true,
+        visible = visible,
         modifier = Modifier.align(Alignment.BottomCenter),
         enter = slideInVertically(PinpinMotion.emphasizedTween()) { it } +
             fadeIn(PinpinMotion.standardTween()),
@@ -1767,15 +1883,16 @@ private fun BoxScope.MessageActionSheet(
 
 @Composable
 private fun BoxScope.RenameConversationDialog(
+    visible: Boolean,
     conversation: ConversationEntity,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
     var value by remember(conversation.id) { mutableStateOf(conversation.title) }
     var error by remember(conversation.id) { mutableStateOf(false) }
-    ModalScrim(onDismiss)
+    ModalScrim(onDismiss, visible)
     AnimatedVisibility(
-        visible = true,
+        visible = visible,
         modifier = Modifier.align(Alignment.Center),
         enter = fadeIn(PinpinMotion.standardTween()) +
             scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.9f),
@@ -1854,38 +1971,47 @@ private fun BoxScope.RenameConversationDialog(
 
 @Composable
 private fun BoxScope.ClearHistoryConfirmation(
+    visible: Boolean,
     count: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    ModalScrim(onDismiss)
-    Column(
-        modifier = Modifier
-            .align(Alignment.Center)
-            .padding(horizontal = 30.dp)
-            .fillMaxWidth()
-            .widthIn(max = 380.dp)
-            .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
-            .clip(RoundedCornerShape(30.dp))
-            .background(Panel)
-            .padding(32.dp)
+    ModalScrim(onDismiss, visible)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.Center),
+        enter = fadeIn(PinpinMotion.standardTween()) +
+            scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.9f),
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            scaleOut(PinpinMotion.quickTween(), targetScale = 0.94f)
     ) {
-        BasicText("清除全部对话？", style = TitleTextStyle.copy(fontSize = 21.sp))
-        Spacer(Modifier.height(9.dp))
-        BasicText(
-            if (count == 0) "当前没有已保存的对话。" else "将永久移除这台设备上的 $count 段对话和其中全部消息。",
-            style = BodyTextStyle.copy(color = SecondaryText)
-        )
-        Spacer(Modifier.height(24.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
-            DialogButton(
-                Modifier.weight(1f),
-                if (count == 0) "知道了" else "全部清除",
-                Color.White,
-                if (count == 0) Accent else Destructive,
-                if (count == 0) onDismiss else onConfirm
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 30.dp)
+                .fillMaxWidth()
+                .widthIn(max = 380.dp)
+                .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Panel)
+                .padding(32.dp)
+        ) {
+            BasicText("清除全部对话？", style = TitleTextStyle.copy(fontSize = 21.sp))
+            Spacer(Modifier.height(9.dp))
+            BasicText(
+                if (count == 0) "当前没有已保存的对话。" else "将永久移除这台设备上的 $count 段对话和其中全部消息。",
+                style = BodyTextStyle.copy(color = SecondaryText)
             )
+            Spacer(Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
+                DialogButton(
+                    Modifier.weight(1f),
+                    if (count == 0) "知道了" else "全部清除",
+                    Color.White,
+                    if (count == 0) Accent else Destructive,
+                    if (count == 0) onDismiss else onConfirm
+                )
+            }
         }
     }
 }
@@ -1952,32 +2078,41 @@ private fun SheetAction(
 
 @Composable
 private fun BoxScope.DeleteConfirmation(
+    visible: Boolean,
     title: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    ModalScrim(onDismiss)
-    Column(
-        modifier = Modifier
-            .align(Alignment.Center)
-            .padding(horizontal = 30.dp)
-            .fillMaxWidth()
-            .widthIn(max = 380.dp)
-            .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
-            .clip(RoundedCornerShape(30.dp))
-            .background(Panel)
-            .padding(32.dp)
+    ModalScrim(onDismiss, visible)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.Center),
+        enter = fadeIn(PinpinMotion.standardTween()) +
+            scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.9f),
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            scaleOut(PinpinMotion.quickTween(), targetScale = 0.94f)
     ) {
-        BasicText("删除这段对话？", style = TitleTextStyle.copy(fontSize = 21.sp))
-        Spacer(Modifier.height(9.dp))
-        BasicText(
-            "“${title.take(48)}”及其中的消息会从这台设备移除。",
-            style = BodyTextStyle.copy(color = SecondaryText)
-        )
-        Spacer(Modifier.height(24.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
-            DialogButton(Modifier.weight(1f), "删除", Color.White, Destructive, onConfirm)
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 30.dp)
+                .fillMaxWidth()
+                .widthIn(max = 380.dp)
+                .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Panel)
+                .padding(32.dp)
+        ) {
+            BasicText("删除这段对话？", style = TitleTextStyle.copy(fontSize = 21.sp))
+            Spacer(Modifier.height(9.dp))
+            BasicText(
+                "“${title.take(48)}”及其中的消息会从这台设备移除。",
+                style = BodyTextStyle.copy(color = SecondaryText)
+            )
+            Spacer(Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
+                DialogButton(Modifier.weight(1f), "删除", Color.White, Destructive, onConfirm)
+            }
         }
     }
 }
@@ -2630,14 +2765,7 @@ private fun historySections(
     query: String
 ): List<HistorySection> {
     val needle = query.trim()
-    val filtered = if (needle.isEmpty()) {
-        conversations
-    } else {
-        conversations.filter {
-            it.title.contains(needle, ignoreCase = true) ||
-                it.preview.contains(needle, ignoreCase = true)
-        }
-    }
+    val filtered = conversations
     if (filtered.isEmpty()) return emptyList()
     if (needle.isNotEmpty()) {
         return listOf(HistorySection("search", "搜索结果 · ${filtered.size}", filtered))
@@ -2670,6 +2798,41 @@ private fun historySections(
             .takeIf { it.isNotEmpty() }
             ?.let { add(HistorySection("older", "更早", it)) }
     }
+}
+
+private fun parseChatTextBlocks(content: String): List<ChatTextBlock> {
+    val blocks = mutableListOf<ChatTextBlock>()
+    val buffer = StringBuilder()
+    var inCode = false
+    var language = ""
+
+    fun flush() {
+        if (buffer.isEmpty()) return
+        blocks += ChatTextBlock(
+            text = buffer.toString().trimEnd('\n'),
+            code = inCode,
+            language = if (inCode) language else ""
+        )
+        buffer.clear()
+    }
+
+    content.lineSequence().forEach { line ->
+        if (line.startsWith("```")) {
+            flush()
+            if (inCode) {
+                inCode = false
+                language = ""
+            } else {
+                inCode = true
+                language = line.removePrefix("```").trim().take(24)
+            }
+        } else {
+            if (buffer.isNotEmpty()) buffer.append('\n')
+            buffer.append(line)
+        }
+    }
+    flush()
+    return blocks.ifEmpty { listOf(ChatTextBlock(content, code = false)) }
 }
 
 private fun relativeTime(timestamp: Long): String {

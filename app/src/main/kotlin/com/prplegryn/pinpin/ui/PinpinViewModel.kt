@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -43,7 +44,15 @@ data class ConnectionTestState(
     val availableModels: List<String> = emptyList()
 )
 
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+data class HistorySearchState(
+    val query: String = "",
+    val results: List<ConversationEntity> = emptyList()
+)
+
+@OptIn(
+    kotlinx.coroutines.ExperimentalCoroutinesApi::class,
+    kotlinx.coroutines.FlowPreview::class
+)
 class PinpinViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle
@@ -64,6 +73,17 @@ class PinpinViewModel(
 
     val conversations: StateFlow<List<ConversationEntity>> = repository.conversations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val mutableHistoryQuery = MutableStateFlow("")
+    val historyQuery: StateFlow<String> = mutableHistoryQuery.asStateFlow()
+    val historySearch: StateFlow<HistorySearchState> = mutableHistoryQuery
+        .debounce(HISTORY_SEARCH_DEBOUNCE_MILLIS)
+        .flatMapLatest { query ->
+            val source = if (query.isBlank()) repository.conversations
+            else repository.searchConversations(query)
+            source.map { HistorySearchState(query = query, results = it) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HistorySearchState())
 
     val messages: StateFlow<List<MessageEntity>> = mutableConversationId
         .flatMapLatest { conversationId ->
@@ -168,6 +188,10 @@ class PinpinViewModel(
 
     fun updateComposerDraft(value: String) {
         savedStateHandle[COMPOSER_DRAFT_KEY] = value.take(MAX_DRAFT_CHARS)
+    }
+
+    fun updateHistoryQuery(value: String) {
+        mutableHistoryQuery.value = value.replace('\n', ' ').take(MAX_HISTORY_QUERY_CHARS)
     }
 
     fun newConversation() {
@@ -639,6 +663,8 @@ class PinpinViewModel(
         const val MAX_CONTEXT_CHARS = 120_000
         const val MAX_ASSISTANT_CHARS = 200_000
         const val MAX_DRAFT_CHARS = 8_000
+        const val MAX_HISTORY_QUERY_CHARS = 80
+        const val HISTORY_SEARCH_DEBOUNCE_MILLIS = 180L
         const val COMPOSER_DRAFT_KEY = "composer_draft"
         const val CURRENT_CONVERSATION_KEY = "current_conversation"
         val SETTINGS_ERROR_CODES = setOf(401, 403, 404)
