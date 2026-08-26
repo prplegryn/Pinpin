@@ -101,6 +101,9 @@ class PinpinViewModel(
     private val mutableCanRetry = MutableStateFlow(false)
     val canRetry: StateFlow<Boolean> = mutableCanRetry.asStateFlow()
 
+    private val mutableNeedsSettings = MutableStateFlow(false)
+    val needsSettings: StateFlow<Boolean> = mutableNeedsSettings.asStateFlow()
+
     private val mutableConnectionTest = MutableStateFlow(ConnectionTestState())
     val connectionTest: StateFlow<ConnectionTestState> = mutableConnectionTest.asStateFlow()
 
@@ -140,6 +143,8 @@ class PinpinViewModel(
                 if (activeRequest == null && replyCanBeRetried) {
                     lastFailedConversationId = conversationId
                     mutableCanRetry.value = true
+                    mutableNeedsSettings.value = lastMessage?.errorCode
+                        ?.let { it in SETTINGS_ERROR_CODES } == true
                     if (mutableNotice.value == null) {
                         mutableNotice.value = lastMessage?.error ?: "上次回复未完成"
                     }
@@ -150,6 +155,7 @@ class PinpinViewModel(
 
     fun clearNotice() {
         mutableNotice.value = null
+        mutableNeedsSettings.value = false
     }
 
     fun updateComposerDraft(value: String) {
@@ -166,6 +172,7 @@ class PinpinViewModel(
         lastFailedConversationId = null
         mutableNotice.value = null
         mutableCanRetry.value = false
+        mutableNeedsSettings.value = false
     }
 
     fun selectConversation(conversationId: Long) {
@@ -179,6 +186,7 @@ class PinpinViewModel(
         lastFailedConversationId = null
         mutableNotice.value = null
         mutableCanRetry.value = false
+        mutableNeedsSettings.value = false
     }
 
     fun setPinned(conversation: ConversationEntity) {
@@ -201,6 +209,7 @@ class PinpinViewModel(
                 setConversationId(dao.getFirstConversationId())
             }
             mutableCanRetry.value = false
+            mutableNeedsSettings.value = false
         }
     }
 
@@ -222,6 +231,7 @@ class PinpinViewModel(
         runCatching { settingsStore.save(value) }.onFailure {
             return "设置无法安全保存，请重新打开应用后重试"
         }
+        mutableNeedsSettings.value = false
         return null
     }
 
@@ -262,6 +272,7 @@ class PinpinViewModel(
         apiClient.validate(currentSettings)?.let { error ->
             mutableNotice.value = error
             mutableCanRetry.value = false
+            mutableNeedsSettings.value = true
             return false
         }
         selectionTouched = true
@@ -328,6 +339,7 @@ class PinpinViewModel(
         val currentSettings = settings.value
         apiClient.validate(currentSettings)?.let { error ->
             mutableNotice.value = error
+            mutableNeedsSettings.value = true
             return
         }
         val control = RequestControl()
@@ -369,6 +381,7 @@ class PinpinViewModel(
             lastFailedConversationId = null
             mutableNotice.value = null
             mutableCanRetry.value = false
+            mutableNeedsSettings.value = false
             mutableStreamingReply.value = StreamingReply(conversationId = conversationId, active = true)
         }
 
@@ -452,6 +465,7 @@ class PinpinViewModel(
                 if (cancelledByUser && activeRequest === control) {
                     mutableNotice.value = "已停止"
                     mutableCanRetry.value = false
+                    mutableNeedsSettings.value = false
                 }
             } else {
                 dao.insertMessage(
@@ -461,13 +475,16 @@ class PinpinViewModel(
                         content = partial.ifEmpty { "没有收到回复" },
                         createdAt = System.currentTimeMillis(),
                         status = MessageEntity.STATUS_ERROR,
-                        error = readableError(error)
+                        error = readableError(error),
+                        errorCode = (error as? ApiClientException)?.statusCode
                     )
                 )
                 if (activeRequest === control) {
                     lastFailedConversationId = conversationId
                     mutableNotice.value = readableError(error)
                     mutableCanRetry.value = true
+                    mutableNeedsSettings.value = (error as? ApiClientException)?.statusCode
+                        ?.let { it in SETTINGS_ERROR_CODES } == true
                 }
             }
         } finally {
@@ -543,5 +560,6 @@ class PinpinViewModel(
         const val MAX_DRAFT_CHARS = 8_000
         const val COMPOSER_DRAFT_KEY = "composer_draft"
         const val CURRENT_CONVERSATION_KEY = "current_conversation"
+        val SETTINGS_ERROR_CODES = setOf(401, 403, 404)
     }
 }

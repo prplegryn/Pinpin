@@ -85,7 +85,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -109,7 +108,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.graphics.shadow.Shadow as ComposeShadow
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -212,6 +210,7 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
     val streamingReply by viewModel.streamingReply.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
+    val needsSettings by viewModel.needsSettings.collectAsStateWithLifecycle()
     val connectionTest by viewModel.connectionTest.collectAsStateWithLifecycle()
     val composerDraft by viewModel.composerDraft.collectAsStateWithLifecycle()
 
@@ -226,6 +225,7 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
         streamingReply = streamingReply,
         notice = notice,
         canRetry = canRetry,
+        needsSettings = needsSettings,
         connectionTest = connectionTest,
         composerDraft = composerDraft
     )
@@ -244,6 +244,7 @@ private fun PinpinScreen(
     streamingReply: StreamingReply,
     notice: String?,
     canRetry: Boolean,
+    needsSettings: Boolean,
     connectionTest: ConnectionTestState,
     composerDraft: String
 ) {
@@ -360,7 +361,13 @@ private fun PinpinScreen(
             NoticeBanner(
                 text = notice,
                 canRetry = canRetry,
+                needsSettings = needsSettings,
                 onRetry = viewModel::retryLastReply,
+                onOpenSettings = {
+                    viewModel.clearNotice()
+                    dismissInput()
+                    page = AppPage.Settings
+                },
                 onDismiss = viewModel::clearNotice
             )
 
@@ -405,7 +412,10 @@ private fun PinpinScreen(
                     drawerOpen = false
                     viewModel.selectConversation(conversation.id)
                 },
-                onLongPressConversation = { historyAction = it },
+                onLongPressConversation = {
+                    dismissInput()
+                    historyAction = it
+                },
                 onOpenRoles = {
                     dismissInput()
                     drawerOpen = false
@@ -962,7 +972,9 @@ private fun ComposerButton(stopping: Boolean, onClick: () -> Unit) {
 private fun BoxScope.NoticeBanner(
     text: String?,
     canRetry: Boolean,
+    needsSettings: Boolean,
     onRetry: () -> Unit,
+    onOpenSettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AnimatedVisibility(
@@ -992,7 +1004,9 @@ private fun BoxScope.NoticeBanner(
                 overflow = TextOverflow.Ellipsis,
                 style = SmallTextStyle.copy(color = PrimaryText)
             )
-            if (canRetry) {
+            if (needsSettings) {
+                CompactTextButton("设置", Accent, onOpenSettings)
+            } else if (canRetry) {
                 CompactTextButton("重试", Accent, onRetry)
             }
             IconTouchButton(PinpinIcon.Close, "关闭提示", onDismiss)
@@ -1222,7 +1236,6 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    val haptics = LocalHapticFeedback.current
     val shape = RoundedCornerShape(20.dp)
     Row(
         modifier = Modifier
@@ -1232,10 +1245,7 @@ private fun HistoryRow(
             .combinedClickable(
                 role = Role.Button,
                 onLongClickLabel = "管理对话",
-                onLongClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
-                },
+                onLongClick = onLongClick,
                 onClick = onClick
             )
             .padding(horizontal = 22.dp, vertical = 12.dp),

@@ -12,6 +12,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "conversations")
@@ -44,7 +46,8 @@ data class MessageEntity(
     val content: String,
     val createdAt: Long,
     val status: String = STATUS_COMPLETE,
-    val error: String? = null
+    val error: String? = null,
+    val errorCode: Int? = null
 ) {
     companion object {
         const val ROLE_USER = "user"
@@ -173,7 +176,7 @@ interface PinpinDao {
 
 @Database(
     entities = [ConversationEntity::class, MessageEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class PinpinDatabase : RoomDatabase() {
@@ -188,7 +191,16 @@ abstract class PinpinDatabase : RoomDatabase() {
                 context.applicationContext,
                 PinpinDatabase::class.java,
                 "pinpin.db"
-            ).build().also { instance = it }
+            )
+                .addMigrations(MIGRATION_1_2)
+                .build()
+                .also { instance = it }
+        }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE messages ADD COLUMN errorCode INTEGER")
+            }
         }
     }
 }
