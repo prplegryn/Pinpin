@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -78,6 +79,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
@@ -344,7 +346,7 @@ private fun GlassTitle(
         InteractiveHighlight(animationScope)
     }
 
-    Row(
+    Layout(
         modifier = Modifier
             .width(animatedWidth)
             .height(52.dp)
@@ -390,49 +392,72 @@ private fun GlassTitle(
             .then(interactiveHighlight.modifier)
             .then(interactiveHighlight.gestureModifier)
             .semantics { contentDescription = "打开对话详情" }
-            .padding(start = 6.dp, end = textSafetyInset),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xFF4BC7E8), Color(0xFF636EDB), Color(0xFFC26AD8))
+            // Only the content is clipped. The glass and its press deformation
+            // stay outside this inner modifier and can still grow freely.
+            .clip(shadowShape),
+        content = {
+            Row(
+                modifier = Modifier
+                    .height(52.dp)
+                    .padding(start = 6.dp, end = textSafetyInset),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF4BC7E8),
+                                    Color(0xFF636EDB),
+                                    Color(0xFFC26AD8)
+                                )
+                            )
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicText(
+                        text = "P",
+                        style = TextStyle(
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = Inter
+                        )
                     )
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            BasicText(
-                text = "P",
-                style = TextStyle(
-                    color = Color.White,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = Inter
-                )
-            )
+                }
+
+                Spacer(Modifier.width(10.dp))
+
+                androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                    BasicText(
+                        text = "Pinpin",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        style = titleStyle
+                    )
+                    BasicText(
+                        text = subtitle,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        style = subtitleStyle
+                    )
+                }
+            }
         }
-
-        Spacer(Modifier.width(10.dp))
-
-        androidx.compose.foundation.layout.Column {
-            BasicText(
-                text = "Pinpin",
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-                style = titleStyle
-            )
-            BasicText(
-                text = subtitle,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
-                style = subtitleStyle
-            )
+    ) { measurables, constraints ->
+        // The content always receives the final width and stays anchored at x=0.
+        // Only this layout's reported width follows animatedWidth, so BasicText
+        // no longer recomputes ellipsis and glyph layout on every animation frame.
+        val content = measurables.single().measure(
+            Constraints.fixed(targetWidth.roundToPx(), 52.dp.roundToPx())
+        )
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            content.placeRelative(0, 0)
         }
     }
 }
@@ -492,6 +517,9 @@ private fun BoxScope.AdaptiveComposer(
         animationSpec = tween(durationMillis = 130),
         label = "composer concentric padding"
     )
+    // edgePadding and the corner radius differ by 21dp in both IME states.
+    // Adding this inset places the text past the left arc's tangent, plus 2px.
+    val textStartPadding = 21.dp + with(density) { 2.toDp() }
 
     fun send() {
         val message = text.trim()
@@ -547,7 +575,12 @@ private fun BoxScope.AdaptiveComposer(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, end = 8.dp, top = 9.dp, bottom = 9.dp),
+                        .padding(
+                            start = textStartPadding,
+                            end = 8.dp,
+                            top = 9.dp,
+                            bottom = 9.dp
+                        ),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (text.isEmpty()) {
