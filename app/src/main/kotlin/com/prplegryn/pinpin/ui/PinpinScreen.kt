@@ -3,6 +3,7 @@ package com.prplegryn.pinpin.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -30,9 +31,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,9 +91,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.shadow.Shadow as BackdropShadow
 import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedRectangle
 import com.prplegryn.pinpin.R
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -208,7 +208,7 @@ private fun BoxScope.TopBar(
             GlassTitle(
                 backdrop = backdrop,
                 subtitle = subtitle,
-                modifier = Modifier.widthIn(max = titleMaximumWidth),
+                maximumWidth = titleMaximumWidth,
                 onClick = onTitleClick
             )
 
@@ -240,6 +240,11 @@ private fun GlassIconButton(
     Box(
         modifier = Modifier
             .size(52.dp)
+            .appleAmbientShadow(
+                shape = CircleShape,
+                radius = 15.dp,
+                alpha = 0.16f
+            )
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
@@ -248,13 +253,7 @@ private fun GlassIconButton(
                     blur(2.dp.toPx())
                     lens(12.dp.toPx(), 24.dp.toPx())
                 },
-                shadow = {
-                    BackdropShadow(
-                        radius = 18.dp,
-                        offset = DpOffset(0.dp, 0.dp),
-                        color = Color.Black.copy(alpha = 0.18f)
-                    )
-                },
+                shadow = null,
                 layerBlock = {
                     val progress = interactiveHighlight.pressProgress
                     val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
@@ -295,20 +294,62 @@ private fun GlassIconButton(
 private fun GlassTitle(
     backdrop: Backdrop,
     subtitle: String,
-    modifier: Modifier = Modifier,
+    maximumWidth: Dp,
     onClick: () -> Unit
 ) {
     val shape = remember { Capsule() }
-    val textSafetyInset = 26.dp + with(LocalDensity.current) { 2.toDp() }
+    val shadowShape = remember { RoundedCornerShape(26.dp) }
+    val density = LocalDensity.current
+    val textSafetyInset = 26.dp + with(density) { 2.toDp() }
+    val titleStyle = TextStyle(
+        color = PrimaryText,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = Inter
+    )
+    val subtitleStyle = TextStyle(
+        color = SecondaryText,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        fontFamily = Inter
+    )
+    val textMeasurer = rememberTextMeasurer()
+    val measuredTextWidth = maxOf(
+        textMeasurer.measure(
+            text = "Pinpin",
+            style = titleStyle,
+            softWrap = false,
+            maxLines = 1
+        ).size.width,
+        textMeasurer.measure(
+            text = subtitle,
+            style = subtitleStyle,
+            softWrap = false,
+            maxLines = 1
+        ).size.width
+    )
+    val targetWidth = (
+        6.dp + 40.dp + 10.dp + with(density) { measuredTextWidth.toDp() } + textSafetyInset
+    ).coerceIn(120.dp, maximumWidth)
+    val animatedWidth by animateDpAsState(
+        targetValue = targetWidth,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 360f),
+        label = "title capsule width"
+    )
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope)
     }
 
     Row(
-        modifier = modifier
+        modifier = Modifier
+            .width(animatedWidth)
             .height(52.dp)
-            .animateContentSize(animationSpec = tween(durationMillis = 180))
+            .appleAmbientShadow(
+                shape = shadowShape,
+                radius = 15.dp,
+                alpha = 0.16f
+            )
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
@@ -317,13 +358,7 @@ private fun GlassTitle(
                     blur(2.dp.toPx())
                     lens(12.dp.toPx(), 24.dp.toPx())
                 },
-                shadow = {
-                    BackdropShadow(
-                        radius = 18.dp,
-                        offset = DpOffset(0.dp, 0.dp),
-                        color = Color.Black.copy(alpha = 0.18f)
-                    )
-                },
+                shadow = null,
                 layerBlock = {
                     val progress = interactiveHighlight.pressProgress
                     val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
@@ -386,24 +421,14 @@ private fun GlassTitle(
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    color = PrimaryText,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = Inter
-                )
+                style = titleStyle
             )
             BasicText(
                 text = subtitle,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    color = SecondaryText,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = Inter
-                )
+                style = subtitleStyle
             )
         }
     }
@@ -463,7 +488,7 @@ private fun BoxScope.AdaptiveComposer(
         onDismissInput()
     }
 
-    val shape = remember { RoundedRectangle(32.dp) }
+    val shape = remember { RoundedCornerShape(32.dp) }
 
     Row(
         modifier = Modifier
@@ -477,7 +502,7 @@ private fun BoxScope.AdaptiveComposer(
             .fillMaxWidth()
             .heightIn(min = minimumHeight, max = 132.dp)
             .animateContentSize(animationSpec = tween(durationMillis = 140))
-            .appleAmbientShadow(shape = shape, radius = 18.dp, alpha = 0.22f)
+            .appleAmbientShadow(shape = shape, radius = 18.dp, alpha = 0.18f)
             .clip(shape)
             .background(Color.White)
             .border(0.75.dp, Color.Black.copy(alpha = 0.055f), shape)
@@ -695,7 +720,7 @@ private fun Modifier.appleAmbientShadow(
     shape = shape,
     shadow = ComposeShadow(
         radius = radius,
-        spread = 0.5.dp,
+        spread = 0.dp,
         offset = DpOffset(0.dp, 0.dp),
         color = Color.Black.copy(alpha = alpha)
     )
