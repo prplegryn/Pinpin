@@ -9,8 +9,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -36,6 +38,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +57,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
@@ -76,6 +80,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.shadow.Shadow as ComposeShadow
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -93,8 +99,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 
-private val PrimaryText = Color(0xFFF5FBFF)
-private val SecondaryText = Color(0xBFD8E8EF)
+private val PrimaryText = Color(0xE6222A31)
+private val SecondaryText = Color(0xA6444F58)
 private val ComposerText = Color(0xFF172126)
 private val ComposerSecondary = Color(0xFF68737A)
 private val Accent = Color(0xFF087CFA)
@@ -114,11 +120,22 @@ fun PinpinApp() {
 @Composable
 private fun PinpinScreen() {
     val backdrop = rememberLayerBackdrop()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var subtitle by remember { mutableStateOf("新的对话") }
+
+    val dismissInput = {
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        dismissInput()
+    }
 
     Box(Modifier.fillMaxSize()) {
         Image(
-            painter = painterResource(R.drawable.pinpin_sunlit_valley),
+            painter = painterResource(R.drawable.pinpin_minimal_flow),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -126,34 +143,35 @@ private fun PinpinScreen() {
                 .fillMaxSize()
         )
 
-        // A light, restrained contrast veil keeps the controls readable without
-        // muting the bright landscape that drives the glass refraction.
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0x34020B11),
-                        0.22f to Color.Transparent,
-                        0.68f to Color.Transparent,
-                        1f to Color(0x3D02090E)
-                    )
-                )
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { dismissInput() })
+                }
         )
 
         TopBar(
             backdrop = backdrop,
             subtitle = subtitle,
             onMenuClick = {
+                dismissInput()
                 subtitle = if (subtitle == "菜单已就绪") "新的对话" else "菜单已就绪"
             },
-            onTitleClick = { subtitle = "新的对话" },
+            onTitleClick = {
+                dismissInput()
+                subtitle = "新的对话"
+            },
             onMoreClick = {
+                dismissInput()
                 subtitle = if (subtitle == "更多选项") "新的对话" else "更多选项"
             }
         )
 
-        AdaptiveComposer(onSend = { subtitle = "刚刚发送" })
+        AdaptiveComposer(
+            onDismissInput = dismissInput,
+            onSend = { subtitle = "刚刚发送" }
+        )
     }
 }
 
@@ -165,37 +183,44 @@ private fun BoxScope.TopBar(
     onTitleClick: () -> Unit,
     onMoreClick: () -> Unit
 ) {
-    Row(
+    BoxWithConstraints(
         modifier = Modifier
             .align(Alignment.TopCenter)
             .statusBarsPadding()
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 18.dp, vertical = 12.dp)
     ) {
-        GlassIconButton(
-            backdrop = backdrop,
-            icon = PinpinIcon.Menu,
-            contentDescription = "打开菜单",
-            onClick = onMenuClick
-        )
+        val titleMaximumWidth = maxOf(120.dp, maxWidth - 125.dp)
 
-        Spacer(Modifier.width(9.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlassIconButton(
+                backdrop = backdrop,
+                icon = PinpinIcon.Menu,
+                contentDescription = "打开菜单",
+                onClick = onMenuClick
+            )
 
-        GlassTitle(
-            backdrop = backdrop,
-            subtitle = subtitle,
-            onClick = onTitleClick
-        )
+            Spacer(Modifier.width(9.dp))
 
-        Spacer(Modifier.weight(1f))
+            GlassTitle(
+                backdrop = backdrop,
+                subtitle = subtitle,
+                modifier = Modifier.widthIn(max = titleMaximumWidth),
+                onClick = onTitleClick
+            )
 
-        GlassIconButton(
-            backdrop = backdrop,
-            icon = PinpinIcon.More,
-            contentDescription = "更多选项",
-            onClick = onMoreClick
-        )
+            Spacer(Modifier.weight(1f))
+
+            GlassIconButton(
+                backdrop = backdrop,
+                icon = PinpinIcon.More,
+                contentDescription = "更多选项",
+                onClick = onMoreClick
+            )
+        }
     }
 }
 
@@ -270,18 +295,20 @@ private fun GlassIconButton(
 private fun GlassTitle(
     backdrop: Backdrop,
     subtitle: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val shape = remember { Capsule() }
+    val textSafetyInset = 26.dp + with(LocalDensity.current) { 2.toDp() }
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope)
     }
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .height(52.dp)
-            .widthIn(max = 210.dp)
+            .animateContentSize(animationSpec = tween(durationMillis = 180))
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
@@ -325,7 +352,7 @@ private fun GlassTitle(
             .then(interactiveHighlight.modifier)
             .then(interactiveHighlight.gestureModifier)
             .semantics { contentDescription = "打开对话详情" }
-            .padding(start = 6.dp, end = 14.dp),
+            .padding(start = 6.dp, end = textSafetyInset),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -357,6 +384,7 @@ private fun GlassTitle(
             BasicText(
                 text = "Pinpin",
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
                     color = PrimaryText,
@@ -368,6 +396,7 @@ private fun GlassTitle(
             BasicText(
                 text = subtitle,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(
                     color = SecondaryText,
@@ -383,12 +412,12 @@ private fun GlassTitle(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoxScope.AdaptiveComposer(
+    onDismissInput: () -> Unit,
     onSend: (String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
+    var imeHasOpened by remember { mutableStateOf(false) }
     val canSend = text.isNotBlank()
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
     val density = LocalDensity.current
     val imeBottom = WindowInsets.ime.getBottom(density)
     val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
@@ -399,6 +428,15 @@ private fun BoxScope.AdaptiveComposer(
         imeTargetBottom > 0
     } else {
         imeBottom > 0
+    }
+
+    LaunchedEffect(keyboardExpanded) {
+        if (keyboardExpanded) {
+            imeHasOpened = true
+        } else if (imeHasOpened) {
+            imeHasOpened = false
+            onDismissInput()
+        }
     }
 
     val horizontalMargin by animateDpAsState(
@@ -422,8 +460,7 @@ private fun BoxScope.AdaptiveComposer(
         if (message.isEmpty()) return
         onSend(message)
         text = ""
-        keyboardController?.hide()
-        focusManager.clearFocus()
+        onDismissInput()
     }
 
     val shape = remember { RoundedRectangle(32.dp) }
@@ -522,11 +559,6 @@ private fun ComposerButton(
     Box(
         modifier = Modifier
             .size(42.dp)
-            .appleAmbientShadow(
-                shape = CircleShape,
-                radius = if (emphasized) 8.dp else 6.dp,
-                alpha = if (emphasized) 0.18f else 0.11f
-            )
             .clip(CircleShape)
             .background(background)
             .then(

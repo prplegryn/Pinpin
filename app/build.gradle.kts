@@ -90,6 +90,7 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.compose.animation)
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
