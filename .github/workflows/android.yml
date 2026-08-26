@@ -44,7 +44,7 @@ jobs:
           cmdline-tools-version: "15859902"
 
       - name: Install Android 17 preview SDK
-        run: sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0"
+        run: android sdk install --canary platforms/android-37 build-tools/37.0.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
