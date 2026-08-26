@@ -2,8 +2,11 @@ package com.prplegryn.pinpin.ui
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -13,7 +16,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,6 +35,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +49,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -50,6 +58,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.animateItem
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -79,10 +88,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -90,6 +101,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -100,6 +112,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
@@ -125,6 +138,8 @@ import com.prplegryn.pinpin.data.ApiSettings
 import com.prplegryn.pinpin.data.ConversationEntity
 import com.prplegryn.pinpin.data.MessageEntity
 import com.prplegryn.pinpin.data.RoleProfile
+import java.util.Calendar
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -199,15 +214,25 @@ private val AvatarTextStyle = TextStyle(
 
 private enum class AppPage { Chat, Settings }
 
+private data class MessageActionTarget(
+    val message: MessageEntity,
+    val canRegenerate: Boolean
+)
+
+private data class HistorySection(
+    val key: String,
+    val label: String,
+    val conversations: List<ConversationEntity>
+)
+
 @Composable
 fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
-    val messages by viewModel.messages.collectAsStateWithLifecycle()
     val currentConversation by viewModel.currentConversation.collectAsStateWithLifecycle()
     val currentConversationId by viewModel.currentConversationId.collectAsStateWithLifecycle()
     val currentRoleId by viewModel.currentRoleId.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val streamingReply by viewModel.streamingReply.collectAsStateWithLifecycle()
+    val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
     val needsSettings by viewModel.needsSettings.collectAsStateWithLifecycle()
@@ -217,12 +242,11 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
     PinpinScreen(
         viewModel = viewModel,
         conversations = conversations,
-        messages = messages,
         currentConversation = currentConversation,
         currentConversationId = currentConversationId,
         currentRoleId = currentRoleId,
         settings = settings,
-        streamingReply = streamingReply,
+        isStreaming = isStreaming,
         notice = notice,
         canRetry = canRetry,
         needsSettings = needsSettings,
@@ -236,12 +260,11 @@ fun PinpinApp(viewModel: PinpinViewModel = viewModel()) {
 private fun PinpinScreen(
     viewModel: PinpinViewModel,
     conversations: List<ConversationEntity>,
-    messages: List<MessageEntity>,
     currentConversation: ConversationEntity?,
     currentConversationId: Long?,
     currentRoleId: String,
     settings: ApiSettings,
-    streamingReply: StreamingReply,
+    isStreaming: Boolean,
     notice: String?,
     canRetry: Boolean,
     needsSettings: Boolean,
@@ -251,12 +274,17 @@ private fun PinpinScreen(
     val backdrop = rememberLayerBackdrop()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val clipboard = LocalClipboardManager.current
     var page by rememberSaveable { mutableStateOf(AppPage.Chat) }
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var rolePickerOpen by rememberSaveable { mutableStateOf(false) }
     var moreMenuOpen by rememberSaveable { mutableStateOf(false) }
     var historyAction by remember { mutableStateOf<ConversationEntity?>(null) }
+    var messageAction by remember { mutableStateOf<MessageActionTarget?>(null) }
     var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+    var pendingRename by remember { mutableStateOf<ConversationEntity?>(null) }
+    var pendingClearAll by rememberSaveable { mutableStateOf(false) }
+    var copiedFeedback by remember { mutableStateOf(false) }
     val roles = remember(settings) { RoleProfile.all(settings) }
 
     val dismissInput = remember(keyboardController, focusManager) {
@@ -270,12 +298,23 @@ private fun PinpinScreen(
         dismissInput()
     }
 
+    LaunchedEffect(copiedFeedback) {
+        if (copiedFeedback) {
+            delay(1_500)
+            copiedFeedback = false
+        }
+    }
+
     BackHandler(
-        enabled = pendingDelete != null || historyAction != null || rolePickerOpen ||
+        enabled = pendingClearAll || pendingRename != null || pendingDelete != null ||
+            messageAction != null || historyAction != null || rolePickerOpen ||
             moreMenuOpen || drawerOpen || page == AppPage.Settings
     ) {
         when {
+            pendingClearAll -> pendingClearAll = false
+            pendingRename != null -> pendingRename = null
             pendingDelete != null -> pendingDelete = null
+            messageAction != null -> messageAction = null
             historyAction != null -> historyAction = null
             rolePickerOpen -> rolePickerOpen = false
             moreMenuOpen -> moreMenuOpen = false
@@ -300,150 +339,175 @@ private fun PinpinScreen(
                 .fillMaxSize()
         )
 
-        if (page == AppPage.Settings) {
-            SettingsPage(
-                backdrop = backdrop,
-                settings = settings,
-                connectionTest = connectionTest,
-                onBack = {
-                    dismissInput()
-                    page = AppPage.Chat
-                },
-                onSave = viewModel::saveSettings,
-                onTest = viewModel::testSettings,
-                onClearTest = viewModel::clearConnectionTest
-            )
-        } else {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { dismissInput() })
-                    }
-            )
-
-            MessageList(
-                messages = messages,
-                streamingReply = streamingReply.takeIf {
-                    it.active && it.conversationId == currentConversationId
-                },
-                currentRole = roles
-                    .firstOrNull { it.id == currentRoleId }
-                    ?: roles.first()
-            )
-
-            TopBar(
-                backdrop = backdrop,
-                subtitle = currentConversation?.title ?: "新的对话",
-                onMenuClick = {
-                    dismissInput()
-                    drawerOpen = true
-                },
-                onTitleClick = {
-                    dismissInput()
-                    rolePickerOpen = true
-                },
-                onMoreClick = {
-                    dismissInput()
-                    moreMenuOpen = true
+        AnimatedContent(
+            targetState = page,
+            modifier = Modifier.fillMaxSize(),
+            transitionSpec = {
+                if (targetState == AppPage.Settings) {
+                    (slideInHorizontally(PinpinMotion.emphasizedTween()) { it / 4 } +
+                        fadeIn(PinpinMotion.standardTween())) togetherWith
+                        (slideOutHorizontally(PinpinMotion.standardTween()) { -it / 8 } +
+                            fadeOut(PinpinMotion.quickTween()))
+                } else {
+                    (slideInHorizontally(PinpinMotion.emphasizedTween()) { -it / 5 } +
+                        fadeIn(PinpinMotion.standardTween())) togetherWith
+                        (slideOutHorizontally(PinpinMotion.standardTween()) { it / 5 } +
+                            fadeOut(PinpinMotion.quickTween()))
                 }
-            )
+            },
+            label = "chat settings navigation"
+        ) { targetPage ->
+            if (targetPage == AppPage.Settings) {
+                SettingsPage(
+                    backdrop = backdrop,
+                    settings = settings,
+                    connectionTest = connectionTest,
+                    onBack = {
+                        dismissInput()
+                        page = AppPage.Chat
+                    },
+                    onSave = viewModel::saveSettings,
+                    onTest = viewModel::testSettings,
+                    onClearTest = viewModel::clearConnectionTest,
+                    onClearHistory = { pendingClearAll = true }
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { dismissInput() })
+                        }
+                ) {
+                    MessageListHost(
+                        viewModel = viewModel,
+                        currentConversationId = currentConversationId,
+                        currentRole = roles
+                            .firstOrNull { it.id == currentRoleId }
+                            ?: roles.first(),
+                        onMessageLongPress = { message, canRegenerate ->
+                            dismissInput()
+                            messageAction = MessageActionTarget(message, canRegenerate)
+                        }
+                    )
 
-            AdaptiveComposer(
-                text = composerDraft,
-                isStreaming = streamingReply.active,
-                onTextChange = viewModel::updateComposerDraft,
-                onDismissInput = dismissInput,
-                onSend = viewModel::send,
-                onStop = viewModel::stopReply
-            )
+                    TopBar(
+                        backdrop = backdrop,
+                        subtitle = currentConversation?.title ?: "新的对话",
+                        onMenuClick = {
+                            dismissInput()
+                            drawerOpen = true
+                        },
+                        onTitleClick = {
+                            dismissInput()
+                            rolePickerOpen = true
+                        },
+                        onMoreClick = {
+                            dismissInput()
+                            moreMenuOpen = true
+                        }
+                    )
 
-            NoticeBanner(
-                text = notice,
-                canRetry = canRetry,
-                needsSettings = needsSettings,
-                onRetry = viewModel::retryLastReply,
-                onOpenSettings = {
-                    viewModel.clearNotice()
-                    dismissInput()
-                    page = AppPage.Settings
-                },
-                onDismiss = viewModel::clearNotice
-            )
+                    AdaptiveComposer(
+                        text = composerDraft,
+                        isStreaming = isStreaming,
+                        onTextChange = viewModel::updateComposerDraft,
+                        onDismissInput = dismissInput,
+                        onSend = viewModel::send,
+                        onStop = viewModel::stopReply
+                    )
 
-            MoreMenu(
-                visible = moreMenuOpen,
-                canDelete = currentConversation != null,
-                canRetry = canRetry,
-                onDismiss = { moreMenuOpen = false },
-                onNewConversation = {
-                    moreMenuOpen = false
-                    viewModel.newConversation()
-                },
-                onOpenSettings = {
-                    moreMenuOpen = false
-                    page = AppPage.Settings
-                },
-                onRetry = {
-                    moreMenuOpen = false
-                    viewModel.retryLastReply()
-                },
-                onDelete = {
-                    moreMenuOpen = false
-                    pendingDelete = currentConversation
+                    NoticeBanner(
+                        text = notice,
+                        canRetry = canRetry,
+                        needsSettings = needsSettings,
+                        onRetry = viewModel::retryLastReply,
+                        onOpenSettings = {
+                            viewModel.clearNotice()
+                            dismissInput()
+                            page = AppPage.Settings
+                        },
+                        onDismiss = viewModel::clearNotice
+                    )
+
+                    MoreMenu(
+                        visible = moreMenuOpen,
+                        canManage = currentConversation != null,
+                        canRetry = canRetry,
+                        onDismiss = { moreMenuOpen = false },
+                        onNewConversation = {
+                            moreMenuOpen = false
+                            viewModel.newConversation()
+                        },
+                        onOpenSettings = {
+                            moreMenuOpen = false
+                            page = AppPage.Settings
+                        },
+                        onRetry = {
+                            moreMenuOpen = false
+                            viewModel.retryLastReply()
+                        },
+                        onRename = {
+                            moreMenuOpen = false
+                            pendingRename = currentConversation
+                        },
+                        onDelete = {
+                            moreMenuOpen = false
+                            pendingDelete = currentConversation
+                        }
+                    )
+
+                    ConversationDrawer(
+                        visible = drawerOpen,
+                        conversations = conversations,
+                        currentConversationId = currentConversationId,
+                        onDismiss = {
+                            dismissInput()
+                            drawerOpen = false
+                        },
+                        onNewConversation = {
+                            dismissInput()
+                            drawerOpen = false
+                            viewModel.newConversation()
+                        },
+                        onSelectConversation = { conversation ->
+                            dismissInput()
+                            drawerOpen = false
+                            viewModel.selectConversation(conversation.id)
+                        },
+                        onLongPressConversation = {
+                            dismissInput()
+                            historyAction = it
+                        },
+                        onOpenRoles = {
+                            dismissInput()
+                            drawerOpen = false
+                            rolePickerOpen = true
+                        },
+                        onOpenSettings = {
+                            dismissInput()
+                            drawerOpen = false
+                            page = AppPage.Settings
+                        }
+                    )
                 }
-            )
-
-            ConversationDrawer(
-                visible = drawerOpen,
-                conversations = conversations,
-                currentConversationId = currentConversationId,
-                onDismiss = {
-                    dismissInput()
-                    drawerOpen = false
-                },
-                onNewConversation = {
-                    dismissInput()
-                    drawerOpen = false
-                    viewModel.newConversation()
-                },
-                onSelectConversation = { conversation ->
-                    dismissInput()
-                    drawerOpen = false
-                    viewModel.selectConversation(conversation.id)
-                },
-                onLongPressConversation = {
-                    dismissInput()
-                    historyAction = it
-                },
-                onOpenRoles = {
-                    dismissInput()
-                    drawerOpen = false
-                    rolePickerOpen = true
-                },
-                onOpenSettings = {
-                    dismissInput()
-                    drawerOpen = false
-                    page = AppPage.Settings
-                }
-            )
+            }
         }
 
-        if (rolePickerOpen) {
-            RolePickerSheet(
-                roles = roles,
-                selectedRoleId = currentRoleId,
-                onSelect = { role ->
-                    viewModel.selectRole(role.id)
-                    rolePickerOpen = false
-                },
-                onDismiss = { rolePickerOpen = false },
-                onEditCustomRole = {
-                    rolePickerOpen = false
-                    page = AppPage.Settings
-                }
-            )
-        }
+        RolePickerSheet(
+            visible = rolePickerOpen,
+            roles = roles,
+            selectedRoleId = currentRoleId,
+            onSelect = { role ->
+                viewModel.selectRole(role.id)
+                rolePickerOpen = false
+            },
+            onDismiss = { rolePickerOpen = false },
+            onEditCustomRole = {
+                rolePickerOpen = false
+                page = AppPage.Settings
+            }
+        )
 
         historyAction?.let { conversation ->
             HistoryActionSheet(
@@ -453,9 +517,41 @@ private fun PinpinScreen(
                     viewModel.setPinned(conversation)
                     historyAction = null
                 },
+                onRename = {
+                    historyAction = null
+                    pendingRename = conversation
+                },
                 onDelete = {
                     historyAction = null
                     pendingDelete = conversation
+                }
+            )
+        }
+
+        messageAction?.let { target ->
+            MessageActionSheet(
+                target = target,
+                onDismiss = { messageAction = null },
+                onCopy = {
+                    clipboard.setText(AnnotatedString(target.message.content))
+                    messageAction = null
+                    copiedFeedback = true
+                },
+                onRegenerate = {
+                    messageAction = null
+                    viewModel.regenerateReply(target.message.id)
+                }
+            )
+        }
+
+        pendingRename?.let { conversation ->
+            RenameConversationDialog(
+                conversation = conversation,
+                onDismiss = { pendingRename = null },
+                onConfirm = { title ->
+                    if (viewModel.renameConversation(conversation.id, title)) {
+                        pendingRename = null
+                    }
                 }
             )
         }
@@ -470,19 +566,67 @@ private fun PinpinScreen(
                 }
             )
         }
+
+
+        if (pendingClearAll) {
+            ClearHistoryConfirmation(
+                count = conversations.size,
+                onDismiss = { pendingClearAll = false },
+                onConfirm = {
+                    pendingClearAll = false
+                    viewModel.clearAllConversations()
+                    page = AppPage.Chat
+                }
+            )
+        }
+
+        TransientToast(visible = copiedFeedback, text = "已复制")
     }
+}
+
+@Composable
+private fun BoxScope.MessageListHost(
+    viewModel: PinpinViewModel,
+    currentConversationId: Long?,
+    currentRole: RoleProfile,
+    onMessageLongPress: (MessageEntity, Boolean) -> Unit
+) {
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val streamingReply by viewModel.streamingReply.collectAsStateWithLifecycle()
+    MessageList(
+        messages = messages,
+        streamingReply = streamingReply.takeIf {
+            it.active && it.conversationId == currentConversationId
+        },
+        currentRole = currentRole,
+        onMessageLongPress = { message ->
+            onMessageLongPress(
+                message,
+                message.role == MessageEntity.ROLE_ASSISTANT &&
+                    !streamingReply.active && messages.lastOrNull()?.id == message.id
+            )
+        }
+    )
 }
 
 @Composable
 private fun BoxScope.MessageList(
     messages: List<MessageEntity>,
     streamingReply: StreamingReply?,
-    currentRole: RoleProfile
+    currentRole: RoleProfile,
+    onMessageLongPress: (MessageEntity) -> Unit
 ) {
-    if (messages.isEmpty() && streamingReply == null) {
+    val empty = messages.isEmpty() && streamingReply == null
+    AnimatedVisibility(
+        visible = empty,
+        modifier = Modifier.align(Alignment.Center),
+        enter = fadeIn(PinpinMotion.emphasizedTween()) +
+            scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.92f),
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            scaleOut(PinpinMotion.quickTween(), targetScale = 0.96f)
+    ) {
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
                 .padding(horizontal = 44.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -503,43 +647,61 @@ private fun BoxScope.MessageList(
             )
             Spacer(Modifier.height(6.dp))
             BasicText(
-                text = "当前角色 · ${currentRole.name}",
+                text = "${currentRole.name} · ${currentRole.description}",
+                modifier = Modifier.widthIn(max = 280.dp),
                 style = SmallTextStyle
             )
         }
-        return
     }
 
-    LazyColumn(
+    AnimatedVisibility(
+        visible = !empty,
         modifier = Modifier.fillMaxSize(),
-        reverseLayout = true,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = 100.dp,
-            bottom = 108.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        enter = fadeIn(PinpinMotion.standardTween()),
+        exit = fadeOut(PinpinMotion.quickTween())
     ) {
-        streamingReply?.let { reply ->
-            item(key = "streaming-${reply.conversationId}") {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            reverseLayout = true,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 100.dp,
+                bottom = 108.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            streamingReply?.let { reply ->
+                item(key = "streaming-${reply.conversationId}") {
+                    MessageBubble(
+                        content = reply.text.ifEmpty { "正在连接…" },
+                        fromUser = false,
+                        isStreaming = true,
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = PinpinMotion.standardTween(),
+                            fadeOutSpec = PinpinMotion.quickTween(),
+                            placementSpec = PinpinMotion.settledSpring()
+                        )
+                    )
+                }
+            }
+            items(
+                items = messages.asReversed(),
+                key = { it.id },
+                contentType = { it.role }
+            ) { message ->
                 MessageBubble(
-                    content = reply.text.ifEmpty { "正在连接…" },
-                    fromUser = false,
-                    isStreaming = true
+                    content = message.content,
+                    fromUser = message.role == MessageEntity.ROLE_USER,
+                    status = message.status,
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = PinpinMotion.standardTween(),
+                        fadeOutSpec = PinpinMotion.quickTween(),
+                        placementSpec = PinpinMotion.settledSpring()
+                    ),
+                    onLongPress = { onMessageLongPress(message) }
                 )
             }
-        }
-        items(
-            items = messages.asReversed(),
-            key = { it.id },
-            contentType = { it.role }
-        ) { message ->
-            MessageBubble(
-                content = message.content,
-                fromUser = message.role == MessageEntity.ROLE_USER,
-                status = message.status
-            )
         }
     }
 }
@@ -549,19 +711,38 @@ private fun MessageBubble(
     content: String,
     fromUser: Boolean,
     status: String = MessageEntity.STATUS_COMPLETE,
-    isStreaming: Boolean = false
+    isStreaming: Boolean = false,
+    modifier: Modifier = Modifier,
+    onLongPress: (() -> Unit)? = null
 ) {
     val density = LocalDensity.current
     val radius = 22.dp
     val safeHorizontalInset = radius + with(density) { 2.toDp() }
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start
     ) {
         Column(
             modifier = Modifier
                 .widthIn(max = 340.dp)
                 .appleAmbientShadow(RoundedCornerShape(radius), 16.dp, 0.075f)
+                .then(
+                    if (onLongPress != null) {
+                        Modifier
+                            .pinpinPressFeedback(interactionSource, pressedScale = 0.985f)
+                            .combinedClickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                                role = Role.Button,
+                                onLongClickLabel = "消息操作",
+                                onLongClick = onLongPress,
+                                onClick = {}
+                            )
+                    } else {
+                        Modifier
+                    }
+                )
                 .clip(RoundedCornerShape(radius))
                 .background(
                     if (fromUser) Color(0xFF1678E8).copy(alpha = 0.94f)
@@ -578,7 +759,8 @@ private fun MessageBubble(
                 BasicText(
                     text = content,
                     style = BodyTextStyle.copy(
-                        color = if (fromUser) Color.White else PrimaryText
+                        color = if (fromUser) Color.White else PrimaryText,
+                        textMotion = if (isStreaming) TextMotion.Animated else TextMotion.Static
                     )
                 )
             }
@@ -750,10 +932,17 @@ private fun GlassTitle(
     val targetWidth = (
         6.dp + 40.dp + 10.dp + with(density) { measuredTextWidth.toDp() } + textSafetyInset
     ).coerceIn(120.dp, maximumWidth)
-    val animatedWidth = animateDpAsState(
+    var displayedSubtitle by remember { mutableStateOf(subtitle) }
+    var previousTargetWidth by remember { mutableStateOf(targetWidth) }
+    LaunchedEffect(subtitle, targetWidth) {
+        if (targetWidth <= previousTargetWidth) displayedSubtitle = subtitle
+        previousTargetWidth = targetWidth
+    }
+    val animatedWidth by animateDpAsState(
         targetValue = targetWidth,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 360f),
-        label = "title capsule width"
+        animationSpec = PinpinMotion.expressiveSpring(),
+        label = "title capsule width",
+        finishedListener = { displayedSubtitle = subtitle }
     )
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) { InteractiveHighlight(animationScope) }
@@ -776,12 +965,12 @@ private fun GlassTitle(
             )
             .then(interactiveHighlight.modifier)
             .then(interactiveHighlight.gestureModifier)
-            .semantics { contentDescription = "切换角色" }
-            .clip(shadowShape),
+            .semantics { contentDescription = "切换角色" },
         content = {
             Row(
                 modifier = Modifier
                     .height(52.dp)
+                    .clip(shadowShape)
                     .padding(start = 6.dp, end = textSafetyInset),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -804,13 +993,23 @@ private fun GlassTitle(
                         overflow = TextOverflow.Ellipsis,
                         style = TitleTextStyle
                     )
-                    BasicText(
-                        text = subtitle,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                        style = SubtitleTextStyle
-                    )
+                    AnimatedContent(
+                        targetState = displayedSubtitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        transitionSpec = {
+                            fadeIn(PinpinMotion.standardTween()) togetherWith
+                                fadeOut(PinpinMotion.quickTween())
+                        },
+                        label = "title text"
+                    ) { title ->
+                        BasicText(
+                            text = title,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            style = SubtitleTextStyle.copy(textMotion = TextMotion.Animated)
+                        )
+                    }
                 }
             }
         }
@@ -818,7 +1017,7 @@ private fun GlassTitle(
         val content = measurables.single().measure(
             Constraints.fixed(targetWidth.roundToPx(), 52.dp.roundToPx())
         )
-        val layoutWidth = animatedWidth.value.roundToPx()
+        val layoutWidth = animatedWidth.roundToPx()
             .coerceIn(constraints.minWidth, constraints.maxWidth)
         val layoutHeight = 52.dp.roundToPx()
             .coerceIn(constraints.minHeight, constraints.maxHeight)
@@ -946,13 +1145,20 @@ private fun BoxScope.ComposerSurface(
 
 @Composable
 private fun ComposerButton(stopping: Boolean, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val background by animateColorAsState(
+        targetValue = if (stopping) Color(0xFF26343E) else Accent,
+        animationSpec = PinpinMotion.standardTween(),
+        label = "send stop color"
+    )
     Box(
         modifier = Modifier
             .size(42.dp)
             .clip(CircleShape)
-            .background(if (stopping) Color(0xFF26343E) else Accent)
+            .background(background)
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.88f)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interactionSource,
                 indication = null,
                 role = Role.Button,
                 onClick = onClick
@@ -960,11 +1166,22 @@ private fun ComposerButton(stopping: Boolean, onClick: () -> Unit) {
             .semantics { contentDescription = if (stopping) "停止回复" else "发送" },
         contentAlignment = Alignment.Center
     ) {
-        PinpinIcon(
-            if (stopping) PinpinIcon.Stop else PinpinIcon.Send,
-            Modifier.size(21.dp),
-            Color.White
-        )
+        AnimatedContent(
+            targetState = stopping,
+            transitionSpec = {
+                (fadeIn(PinpinMotion.quickTween()) +
+                    scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.65f)) togetherWith
+                    (fadeOut(PinpinMotion.quickTween()) +
+                        scaleOut(PinpinMotion.quickTween(), targetScale = 0.7f))
+            },
+            label = "send stop icon"
+        ) { isStopping ->
+            PinpinIcon(
+                if (isStopping) PinpinIcon.Stop else PinpinIcon.Send,
+                Modifier.size(21.dp),
+                Color.White
+            )
+        }
     }
 }
 
@@ -1017,36 +1234,61 @@ private fun BoxScope.NoticeBanner(
 @Composable
 private fun BoxScope.MoreMenu(
     visible: Boolean,
-    canDelete: Boolean,
+    canManage: Boolean,
     canRetry: Boolean,
     onDismiss: () -> Unit,
     onNewConversation: () -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    if (!visible) return
-    Box(
-        Modifier
-            .fillMaxSize()
-            .clickable(interactionSource = null, indication = null, onClick = onDismiss)
-    )
-    Column(
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(PinpinMotion.quickTween()),
+        exit = fadeOut(PinpinMotion.quickTween())
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clickable(interactionSource = null, indication = null, onClick = onDismiss)
+        )
+    }
+    AnimatedVisibility(
+        visible = visible,
         modifier = Modifier
             .align(Alignment.TopEnd)
             .statusBarsPadding()
-            .padding(top = 72.dp, end = 18.dp)
+            .padding(top = 72.dp, end = 18.dp),
+        enter = fadeIn(PinpinMotion.quickTween()) +
+            scaleIn(
+                animationSpec = PinpinMotion.expressiveSpring(),
+                initialScale = 0.88f,
+                transformOrigin = TransformOrigin(1f, 0f)
+            ) + slideInVertically(PinpinMotion.standardTween()) { -it / 8 },
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            scaleOut(
+                animationSpec = PinpinMotion.quickTween(),
+                targetScale = 0.94f,
+                transformOrigin = TransformOrigin(1f, 0f)
+            )
+    ) {
+        Column(
+            modifier = Modifier
             .width(206.dp)
             .appleAmbientShadow(RoundedCornerShape(24.dp), 22.dp, 0.12f)
             .clip(RoundedCornerShape(24.dp))
             .background(Panel.copy(alpha = 0.98f))
             .border(0.7.dp, ThinBorder, RoundedCornerShape(24.dp))
             .padding(vertical = 10.dp)
-    ) {
-        MenuAction(PinpinIcon.Add, "新对话", onNewConversation)
-        if (canRetry) MenuAction(PinpinIcon.Retry, "重试上次回复", onRetry, Accent)
-        MenuAction(PinpinIcon.Settings, "设置", onOpenSettings)
-        if (canDelete) MenuAction(PinpinIcon.Trash, "删除当前对话", onDelete, Destructive)
+        ) {
+            MenuAction(PinpinIcon.Add, "新对话", onNewConversation)
+            if (canRetry) MenuAction(PinpinIcon.Retry, "重试上次回复", onRetry, Accent)
+            if (canManage) MenuAction(PinpinIcon.Edit, "重命名", onRename)
+            MenuAction(PinpinIcon.Settings, "设置", onOpenSettings)
+            if (canManage) MenuAction(PinpinIcon.Trash, "删除当前对话", onDelete, Destructive)
+        }
     }
 }
 
@@ -1057,11 +1299,18 @@ private fun MenuAction(
     onClick: () -> Unit,
     color: Color = PrimaryText
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.98f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 22.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1086,8 +1335,8 @@ private fun BoxScope.ConversationDrawer(
     AnimatedVisibility(
         visible = visible,
         modifier = Modifier.fillMaxSize(),
-        enter = fadeIn(tween(160)),
-        exit = fadeOut(tween(130))
+        enter = fadeIn(PinpinMotion.standardTween()),
+        exit = fadeOut(PinpinMotion.quickTween())
     ) {
         Box(
             Modifier
@@ -1099,21 +1348,18 @@ private fun BoxScope.ConversationDrawer(
     AnimatedVisibility(
         visible = visible,
         modifier = Modifier.align(Alignment.CenterStart),
-        enter = slideInHorizontally(tween(260)) { -it },
-        exit = slideOutHorizontally(tween(220)) { -it }
+        enter = slideInHorizontally(PinpinMotion.emphasizedTween()) { -it },
+        exit = slideOutHorizontally(PinpinMotion.standardTween()) { -it }
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val drawerWidth = minOf(maxWidth * 0.88f, 372.dp)
             val drawerShape = RoundedCornerShape(topEnd = 34.dp, bottomEnd = 34.dp)
             val drawerSafeEnd = 34.dp + with(LocalDensity.current) { 2.toDp() }
             var query by rememberSaveable { mutableStateOf("") }
-            val filtered = remember(conversations, query) {
-                val needle = query.trim()
-                if (needle.isEmpty()) conversations else conversations.filter {
-                    it.title.contains(needle, ignoreCase = true) ||
-                        it.preview.contains(needle, ignoreCase = true)
-                }
+            val sections = remember(conversations, query) {
+                historySections(conversations, query)
             }
+            val resultCount = remember(sections) { sections.sumOf { it.conversations.size } }
 
             Column(
                 modifier = Modifier
@@ -1137,7 +1383,7 @@ private fun BoxScope.ConversationDrawer(
                 Spacer(Modifier.height(16.dp))
                 SearchField(query = query, onQueryChange = { query = it.take(80) })
                 Spacer(Modifier.height(16.dp))
-                if (filtered.isEmpty()) {
+                if (resultCount == 0) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -1161,13 +1407,42 @@ private fun BoxScope.ConversationDrawer(
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        items(filtered, key = { it.id }) { conversation ->
-                            HistoryRow(
-                                conversation = conversation,
-                                selected = conversation.id == currentConversationId,
-                                onClick = { onSelectConversation(conversation) },
-                                onLongClick = { onLongPressConversation(conversation) }
-                            )
+                        sections.forEach { section ->
+                            item(key = "section-${section.key}", contentType = "section") {
+                                BasicText(
+                                    text = section.label,
+                                    modifier = Modifier
+                                        .animateItem(
+                                            fadeInSpec = PinpinMotion.standardTween(),
+                                            fadeOutSpec = PinpinMotion.quickTween(),
+                                            placementSpec = PinpinMotion.settledSpring()
+                                        )
+                                        .fillMaxWidth()
+                                        .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
+                                    style = SmallTextStyle.copy(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = SecondaryText.copy(alpha = 0.82f)
+                                    )
+                                )
+                            }
+                            items(
+                                items = section.conversations,
+                                key = { it.id },
+                                contentType = { "conversation" }
+                            ) { conversation ->
+                                HistoryRow(
+                                    conversation = conversation,
+                                    selected = conversation.id == currentConversationId,
+                                    modifier = Modifier.animateItem(
+                                        fadeInSpec = PinpinMotion.standardTween(),
+                                        fadeOutSpec = PinpinMotion.quickTween(),
+                                        placementSpec = PinpinMotion.expressiveSpring()
+                                    ),
+                                    onClick = { onSelectConversation(conversation) },
+                                    onLongClick = { onLongPressConversation(conversation) }
+                                )
+                            }
                         }
                     }
                 }
@@ -1233,16 +1508,26 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
 private fun HistoryRow(
     conversation: ConversationEntity,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(20.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val background by animateColorAsState(
+        targetValue = if (selected) Color(0xFFE5F0FD) else Color.Transparent,
+        animationSpec = PinpinMotion.standardTween(),
+        label = "history selection"
+    )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (selected) Color(0xFFE5F0FD) else Color.Transparent)
+            .background(background)
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.985f)
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
                 role = Role.Button,
                 onLongClickLabel = "管理对话",
                 onLongClick = onLongClick,
@@ -1289,6 +1574,7 @@ private fun DrawerBottomButton(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(24.dp)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .height(52.dp)
@@ -1296,7 +1582,13 @@ private fun DrawerBottomButton(
             .clip(shape)
             .background(Color.White)
             .border(0.7.dp, ThinBorder, shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
@@ -1309,16 +1601,24 @@ private fun DrawerBottomButton(
 
 @Composable
 private fun BoxScope.RolePickerSheet(
+    visible: Boolean,
     roles: List<RoleProfile>,
     selectedRoleId: String,
     onSelect: (RoleProfile) -> Unit,
     onDismiss: () -> Unit,
     onEditCustomRole: () -> Unit
 ) {
-    ModalScrim(onDismiss)
-    Column(
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
+    ModalScrim(onDismiss, visible)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically(PinpinMotion.emphasizedTween()) { it } +
+            fadeIn(PinpinMotion.standardTween()),
+        exit = slideOutVertically(PinpinMotion.standardTween()) { it } +
+            fadeOut(PinpinMotion.quickTween())
+    ) {
+        Column(
+            modifier = Modifier
             .fillMaxWidth()
             .heightIn(max = 640.dp)
             .appleAmbientShadow(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp), 26.dp, 0.14f)
@@ -1327,21 +1627,33 @@ private fun BoxScope.RolePickerSheet(
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding()
             .padding(start = 34.dp, end = 34.dp, top = 28.dp, bottom = 20.dp)
-    ) {
-        BasicText("切换角色", style = TitleTextStyle.copy(fontSize = 21.sp))
+        ) {
+            BasicText("切换角色", style = TitleTextStyle.copy(fontSize = 21.sp))
         Spacer(Modifier.height(6.dp))
         BasicText("角色只改变回答方式，不会改动历史消息", style = SmallTextStyle)
         Spacer(Modifier.height(20.dp))
         roles.forEach { role ->
             val selected = role.id == selectedRoleId
             val shape = RoundedCornerShape(22.dp)
+            val interactionSource = remember(role.id) { MutableInteractionSource() }
+            val roleBackground by animateColorAsState(
+                targetValue = if (selected) Color(0xFFE4F0FE) else Color.White,
+                animationSpec = PinpinMotion.standardTween(),
+                label = "role selection"
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(shape)
-                    .background(if (selected) Color(0xFFE4F0FE) else Color.White)
+                    .background(roleBackground)
                     .border(0.7.dp, if (selected) Accent.copy(alpha = 0.3f) else ThinBorder, shape)
-                    .clickable(role = Role.RadioButton, onClick = { onSelect(role) })
+                    .pinpinPressFeedback(interactionSource, pressedScale = 0.98f)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(role) }
+                    )
                     .padding(horizontal = 24.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1350,11 +1662,20 @@ private fun BoxScope.RolePickerSheet(
                     Spacer(Modifier.height(2.dp))
                     BasicText(role.description, style = SmallTextStyle)
                 }
-                if (selected) PinpinIcon(PinpinIcon.Check, Modifier.size(20.dp), Accent)
+                AnimatedVisibility(
+                    visible = selected,
+                    enter = fadeIn(PinpinMotion.quickTween()) +
+                        scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.55f),
+                    exit = fadeOut(PinpinMotion.quickTween()) +
+                        scaleOut(PinpinMotion.quickTween(), targetScale = 0.65f)
+                ) {
+                    PinpinIcon(PinpinIcon.Check, Modifier.size(20.dp), Accent)
+                }
             }
             Spacer(Modifier.height(9.dp))
         }
-        CompactTextButton("编辑自定义角色", Accent, onEditCustomRole)
+            CompactTextButton("编辑自定义角色", Accent, onEditCustomRole)
+        }
     }
 }
 
@@ -1363,6 +1684,7 @@ private fun BoxScope.HistoryActionSheet(
     conversation: ConversationEntity,
     onDismiss: () -> Unit,
     onTogglePin: () -> Unit,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
     ModalScrim(onDismiss)
@@ -1388,7 +1710,212 @@ private fun BoxScope.HistoryActionSheet(
             onClick = onTogglePin
         )
         Spacer(Modifier.height(8.dp))
+        SheetAction(PinpinIcon.Edit, "重命名", onRename)
+        Spacer(Modifier.height(8.dp))
         SheetAction(PinpinIcon.Trash, "删除对话", onDelete, Destructive)
+    }
+}
+
+@Composable
+private fun BoxScope.MessageActionSheet(
+    target: MessageActionTarget,
+    onDismiss: () -> Unit,
+    onCopy: () -> Unit,
+    onRegenerate: () -> Unit
+) {
+    ModalScrim(onDismiss)
+    AnimatedVisibility(
+        visible = true,
+        modifier = Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically(PinpinMotion.emphasizedTween()) { it } +
+            fadeIn(PinpinMotion.standardTween()),
+        exit = slideOutVertically(PinpinMotion.standardTween()) { it } +
+            fadeOut(PinpinMotion.quickTween())
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .appleAmbientShadow(
+                    RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                    26.dp,
+                    0.14f
+                )
+                .clip(RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp))
+                .background(Panel)
+                .navigationBarsPadding()
+                .padding(start = 34.dp, end = 34.dp, top = 28.dp, bottom = 20.dp)
+        ) {
+            BasicText(
+                if (target.message.role == MessageEntity.ROLE_USER) "你的消息" else "回复操作",
+                style = TitleTextStyle.copy(fontSize = 20.sp)
+            )
+            Spacer(Modifier.height(5.dp))
+            BasicText(
+                target.message.content.replace(Regex("\\s+"), " ").take(90),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = SmallTextStyle
+            )
+            Spacer(Modifier.height(18.dp))
+            SheetAction(PinpinIcon.Copy, "复制全文", onCopy)
+            if (target.canRegenerate) {
+                Spacer(Modifier.height(8.dp))
+                SheetAction(PinpinIcon.Retry, "重新生成回复", onRegenerate, Accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.RenameConversationDialog(
+    conversation: ConversationEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var value by remember(conversation.id) { mutableStateOf(conversation.title) }
+    var error by remember(conversation.id) { mutableStateOf(false) }
+    ModalScrim(onDismiss)
+    AnimatedVisibility(
+        visible = true,
+        modifier = Modifier.align(Alignment.Center),
+        enter = fadeIn(PinpinMotion.standardTween()) +
+            scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.9f),
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            scaleOut(PinpinMotion.quickTween(), targetScale = 0.94f)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 30.dp)
+                .fillMaxWidth()
+                .widthIn(max = 380.dp)
+                .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Panel)
+                .padding(32.dp)
+        ) {
+            BasicText("重命名对话", style = TitleTextStyle.copy(fontSize = 21.sp))
+            Spacer(Modifier.height(16.dp))
+            val fieldShape = RoundedCornerShape(20.dp)
+            BasicTextField(
+                value = value,
+                onValueChange = {
+                    value = it.replace('\n', ' ').take(80)
+                    error = false
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(fieldShape)
+                    .background(Color.White)
+                    .border(
+                        0.8.dp,
+                        if (error) Destructive.copy(alpha = 0.7f) else ThinBorder,
+                        fieldShape
+                    )
+                    .padding(horizontal = 22.dp),
+                singleLine = true,
+                textStyle = BodyTextStyle,
+                cursorBrush = ComposerCursorBrush,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (value.isBlank()) error = true else onConfirm(value)
+                }),
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) { inner() }
+                }
+            )
+            AnimatedVisibility(
+                visible = error,
+                enter = fadeIn(PinpinMotion.quickTween()) +
+                    slideInVertically(PinpinMotion.quickTween()) { -it / 3 },
+                exit = fadeOut(PinpinMotion.quickTween())
+            ) {
+                BasicText(
+                    "名称不能为空",
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                    style = SmallTextStyle.copy(color = Destructive)
+                )
+            }
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
+                DialogButton(
+                    Modifier.weight(1f),
+                    "保存",
+                    Color.White,
+                    Accent,
+                    onClick = {
+                        if (value.isBlank()) error = true else onConfirm(value)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.ClearHistoryConfirmation(
+    count: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    ModalScrim(onDismiss)
+    Column(
+        modifier = Modifier
+            .align(Alignment.Center)
+            .padding(horizontal = 30.dp)
+            .fillMaxWidth()
+            .widthIn(max = 380.dp)
+            .appleAmbientShadow(RoundedCornerShape(30.dp), 26.dp, 0.15f)
+            .clip(RoundedCornerShape(30.dp))
+            .background(Panel)
+            .padding(32.dp)
+    ) {
+        BasicText("清除全部对话？", style = TitleTextStyle.copy(fontSize = 21.sp))
+        Spacer(Modifier.height(9.dp))
+        BasicText(
+            if (count == 0) "当前没有已保存的对话。" else "将永久移除这台设备上的 $count 段对话和其中全部消息。",
+            style = BodyTextStyle.copy(color = SecondaryText)
+        )
+        Spacer(Modifier.height(24.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DialogButton(Modifier.weight(1f), "取消", PrimaryText, Color.White, onDismiss)
+            DialogButton(
+                Modifier.weight(1f),
+                if (count == 0) "知道了" else "全部清除",
+                Color.White,
+                if (count == 0) Accent else Destructive,
+                if (count == 0) onDismiss else onConfirm
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.TransientToast(visible: Boolean, text: String) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 96.dp),
+        enter = fadeIn(PinpinMotion.quickTween()) +
+            slideInVertically(PinpinMotion.expressiveSpring()) { it / 2 },
+        exit = fadeOut(PinpinMotion.quickTween()) +
+            slideOutVertically(PinpinMotion.quickTween()) { it / 3 }
+    ) {
+        Row(
+            modifier = Modifier
+                .appleAmbientShadow(RoundedCornerShape(22.dp), 18.dp, 0.1f)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFF26343E).copy(alpha = 0.94f))
+                .padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PinpinIcon(PinpinIcon.Check, Modifier.size(17.dp), Color.White)
+            Spacer(Modifier.width(8.dp))
+            BasicText(text, style = SmallTextStyle.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
+        }
     }
 }
 
@@ -1400,6 +1927,7 @@ private fun SheetAction(
     color: Color = PrimaryText
 ) {
     val shape = RoundedCornerShape(24.dp)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1407,7 +1935,13 @@ private fun SheetAction(
             .clip(shape)
             .background(Color.White)
             .border(0.7.dp, ThinBorder, shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1450,13 +1984,20 @@ private fun BoxScope.DeleteConfirmation(
 }
 
 @Composable
-private fun BoxScope.ModalScrim(onDismiss: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xFF15202A).copy(alpha = 0.3f))
-            .clickable(interactionSource = null, indication = null, onClick = onDismiss)
-    )
+private fun BoxScope.ModalScrim(onDismiss: () -> Unit, visible: Boolean = true) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(PinpinMotion.standardTween()),
+        exit = fadeOut(PinpinMotion.quickTween())
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xFF15202A).copy(alpha = 0.3f))
+                .clickable(interactionSource = null, indication = null, onClick = onDismiss)
+        )
+    }
 }
 
 @Composable
@@ -1467,19 +2008,27 @@ private fun DialogButton(
     backgroundColor: Color,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .height(52.dp)
             .clip(RoundedCornerShape(26.dp))
             .background(backgroundColor)
             .border(0.7.dp, if (backgroundColor == Color.White) ThinBorder else Color.Transparent, RoundedCornerShape(26.dp))
-            .clickable(role = Role.Button, onClick = onClick),
+            .pinpinPressFeedback(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         BasicText(label, style = BodyTextStyle.copy(color = textColor, fontWeight = FontWeight.SemiBold))
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoxScope.SettingsPage(
     backdrop: Backdrop,
@@ -1488,12 +2037,15 @@ private fun BoxScope.SettingsPage(
     onBack: () -> Unit,
     onSave: (ApiSettings) -> String?,
     onTest: (ApiSettings) -> Unit,
-    onClearTest: () -> Unit
+    onClearTest: () -> Unit,
+    onClearHistory: () -> Unit
 ) {
     var baseUrl by remember(settings) { mutableStateOf(settings.baseUrl) }
     var apiKey by remember(settings) { mutableStateOf(settings.apiKey) }
     var model by remember(settings) { mutableStateOf(settings.model) }
     var temperature by remember(settings) { mutableStateOf(settings.temperature.toString()) }
+    var includeTemperature by remember(settings) { mutableStateOf(settings.includeTemperature) }
+    var streamResponses by remember(settings) { mutableStateOf(settings.streamResponses) }
     var timeout by remember(settings) { mutableStateOf(settings.timeoutSeconds.toString()) }
     var contextLimit by remember(settings) { mutableStateOf(settings.contextMessageLimit.toString()) }
     var customRoleName by remember(settings) { mutableStateOf(settings.customRoleName) }
@@ -1508,14 +2060,14 @@ private fun BoxScope.SettingsPage(
         onClearTest()
     }
 
-    fun draftOrNull(): ApiSettings? {
+    fun draftOrNull(requireModel: Boolean = true): ApiSettings? {
         localSuccess = null
         val parsedTemperature = temperature.toFloatOrNull()
         val parsedTimeout = timeout.toIntOrNull()
         val parsedContext = contextLimit.toIntOrNull()
         localError = when {
             baseUrl.isBlank() -> "请填写 API 地址"
-            model.isBlank() -> "请填写模型名称"
+            requireModel && model.isBlank() -> "请填写模型名称"
             parsedTemperature == null || parsedTemperature !in 0f..2f -> "温度需在 0–2 之间"
             parsedTimeout == null || parsedTimeout !in 15..300 -> "超时时间需在 15–300 秒之间"
             parsedContext == null || parsedContext !in 8..120 -> "上下文消息数需在 8–120 之间"
@@ -1527,6 +2079,8 @@ private fun BoxScope.SettingsPage(
             apiKey = apiKey,
             model = model,
             temperature = requireNotNull(parsedTemperature),
+            includeTemperature = includeTemperature,
+            streamResponses = streamResponses,
             timeoutSeconds = requireNotNull(parsedTimeout),
             contextMessageLimit = requireNotNull(parsedContext),
             customRoleName = customRoleName,
@@ -1584,6 +2138,41 @@ private fun BoxScope.SettingsPage(
                 placeholder = "填写服务提供的模型 ID",
                 onValueChange = { model = it.take(160); edited() }
             )
+            AnimatedVisibility(
+                visible = connectionTest.availableModels.isNotEmpty(),
+                enter = fadeIn(PinpinMotion.standardTween()) +
+                    slideInVertically(PinpinMotion.standardTween()) { -it / 4 },
+                exit = fadeOut(PinpinMotion.quickTween())
+            ) {
+                Column {
+                    BasicText("服务返回的模型", style = SmallTextStyle.copy(fontWeight = FontWeight.SemiBold))
+                    Spacer(Modifier.height(9.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        connectionTest.availableModels.take(12).forEach { discoveredModel ->
+                            ModelChip(
+                                label = discoveredModel,
+                                selected = model == discoveredModel,
+                                onClick = {
+                                    model = discoveredModel
+                                    localError = null
+                                    localSuccess = null
+                                }
+                            )
+                        }
+                    }
+                    if (connectionTest.availableModels.size > 12) {
+                        Spacer(Modifier.height(8.dp))
+                        BasicText(
+                            "另有 ${connectionTest.availableModels.size - 12} 个模型，可直接输入 ID",
+                            style = SmallTextStyle
+                        )
+                    }
+                    Spacer(Modifier.height(18.dp))
+                }
+            }
             BasicText(
                 "密钥由 Android Keystore 加密后保存在本机。移动端仍需在请求时解密；若密钥权限较高，建议使用你自己的 HTTPS 网关。",
                 style = SmallTextStyle
@@ -1594,13 +2183,37 @@ private fun BoxScope.SettingsPage(
             title = "回复",
             description = "只影响之后发出的请求"
         ) {
-            SettingField(
-                label = "温度 · 0–2",
-                value = temperature,
-                placeholder = "0.7",
-                keyboardType = KeyboardType.Decimal,
-                onValueChange = { temperature = it.take(4); edited() }
+            SettingsToggle(
+                title = "流式显示回复",
+                description = "关闭后等待服务返回完整内容，兼容不支持 SSE 的服务",
+                checked = streamResponses,
+                onCheckedChange = { streamResponses = it; edited() }
             )
+            Spacer(Modifier.height(12.dp))
+            SettingsToggle(
+                title = "发送温度参数",
+                description = "部分推理模型不接受 temperature，可在这里省略",
+                checked = includeTemperature,
+                onCheckedChange = { includeTemperature = it; edited() }
+            )
+            AnimatedVisibility(
+                visible = includeTemperature,
+                enter = fadeIn(PinpinMotion.standardTween()) +
+                    slideInVertically(PinpinMotion.standardTween()) { -it / 4 },
+                exit = fadeOut(PinpinMotion.quickTween()) +
+                    slideOutVertically(PinpinMotion.quickTween()) { -it / 4 }
+            ) {
+                Column {
+                    Spacer(Modifier.height(18.dp))
+                    SettingField(
+                        label = "温度 · 0–2",
+                        value = temperature,
+                        placeholder = "0.7",
+                        keyboardType = KeyboardType.Decimal,
+                        onValueChange = { temperature = it.take(4); edited() }
+                    )
+                }
+            }
             SettingField(
                 label = "无数据超时 · 秒",
                 value = timeout,
@@ -1636,6 +2249,18 @@ private fun BoxScope.SettingsPage(
                 onValueChange = { customRolePrompt = it.take(8_000); edited() }
             )
         }
+        Spacer(Modifier.height(14.dp))
+        SettingsSection(
+            title = "本地数据",
+            description = "对话只保存在这台设备；清除后无法恢复"
+        ) {
+            SheetAction(
+                icon = PinpinIcon.Trash,
+                label = "清除全部对话",
+                onClick = onClearHistory,
+                color = Destructive
+            )
+        }
         val feedback = localError ?: localSuccess ?: connectionTest.result
         if (feedback != null) {
             Spacer(Modifier.height(14.dp))
@@ -1653,7 +2278,7 @@ private fun BoxScope.SettingsPage(
                 enabled = !connectionTest.running,
                 onClick = {
                     localSuccess = null
-                    draftOrNull()?.let(onTest)
+                    draftOrNull(requireModel = false)?.let(onTest)
                 }
             )
             SettingsButton(
@@ -1698,6 +2323,120 @@ private fun SettingsSection(
         BasicText(description, style = SmallTextStyle)
         Spacer(Modifier.height(20.dp))
         content()
+    }
+}
+
+@Composable
+private fun SettingsToggle(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val trackColor by animateColorAsState(
+        targetValue = if (checked) Accent else Color(0xFFD8E0E8),
+        animationSpec = PinpinMotion.standardTween(),
+        label = "toggle track"
+    )
+    val knobOffset by animateDpAsState(
+        targetValue = if (checked) 22.dp else 2.dp,
+        animationSpec = PinpinMotion.expressiveSpring(),
+        label = "toggle knob"
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.99f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Switch,
+                onClick = { onCheckedChange(!checked) }
+            )
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            BasicText(title, style = BodyTextStyle.copy(fontWeight = FontWeight.SemiBold))
+            Spacer(Modifier.height(2.dp))
+            BasicText(description, style = SmallTextStyle)
+        }
+        Spacer(Modifier.width(16.dp))
+        Box(
+            modifier = Modifier
+                .width(48.dp)
+                .height(28.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(trackColor)
+                .semantics { contentDescription = title }
+        ) {
+            Box(
+                Modifier
+                    .offset(x = knobOffset, y = 2.dp)
+                    .size(24.dp)
+                    .appleAmbientShadow(CircleShape, 8.dp, 0.12f)
+                    .clip(CircleShape)
+                    .background(Color.White)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModelChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val background by animateColorAsState(
+        targetValue = if (selected) Color(0xFFE4F0FE) else Color.White,
+        animationSpec = PinpinMotion.standardTween(),
+        label = "model chip selection"
+    )
+    Row(
+        modifier = Modifier
+            .height(40.dp)
+            .widthIn(max = 250.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(background)
+            .border(
+                0.7.dp,
+                if (selected) Accent.copy(alpha = 0.32f) else ThinBorder,
+                RoundedCornerShape(20.dp)
+            )
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.96f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.RadioButton,
+                onClick = onClick
+            )
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AnimatedVisibility(
+            visible = selected,
+            enter = fadeIn(PinpinMotion.quickTween()) +
+                scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.5f),
+            exit = fadeOut(PinpinMotion.quickTween())
+        ) {
+            Row {
+                PinpinIcon(PinpinIcon.Check, Modifier.size(14.dp), Accent)
+                Spacer(Modifier.width(6.dp))
+            }
+        }
+        BasicText(
+            label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = SmallTextStyle.copy(
+                color = if (selected) Accent else PrimaryText,
+                fontWeight = FontWeight.SemiBold
+            )
+        )
     }
 }
 
@@ -1789,6 +2528,7 @@ private fun SettingsButton(
     onClick: () -> Unit
 ) {
     val background = if (filled) Accent else Color.White
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .height(54.dp)
@@ -1796,7 +2536,14 @@ private fun SettingsButton(
             .clip(RoundedCornerShape(27.dp))
             .background(background.copy(alpha = if (enabled) 1f else 0.55f))
             .border(0.7.dp, if (filled) Color.Transparent else ThinBorder, RoundedCornerShape(27.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .pinpinPressFeedback(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         BasicText(
@@ -1811,6 +2558,7 @@ private fun SettingsButton(
 
 @Composable
 private fun SolidIconButton(icon: PinpinIcon, description: String, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -1818,7 +2566,13 @@ private fun SolidIconButton(icon: PinpinIcon, description: String, onClick: () -
             .clip(CircleShape)
             .background(Color.White)
             .border(0.7.dp, ThinBorder, CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.9f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -1832,11 +2586,18 @@ private fun IconTouchButton(
     description: String,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource, pressedScale = 0.88f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center
     ) {
@@ -1846,15 +2607,69 @@ private fun IconTouchButton(
 
 @Composable
 private fun CompactTextButton(label: String, color: Color, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .height(48.dp)
             .clip(RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClick = onClick)
+            .pinpinPressFeedback(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         BasicText(label, style = BodyTextStyle.copy(color = color, fontWeight = FontWeight.SemiBold))
+    }
+}
+
+private fun historySections(
+    conversations: List<ConversationEntity>,
+    query: String
+): List<HistorySection> {
+    val needle = query.trim()
+    val filtered = if (needle.isEmpty()) {
+        conversations
+    } else {
+        conversations.filter {
+            it.title.contains(needle, ignoreCase = true) ||
+                it.preview.contains(needle, ignoreCase = true)
+        }
+    }
+    if (filtered.isEmpty()) return emptyList()
+    if (needle.isNotEmpty()) {
+        return listOf(HistorySection("search", "搜索结果 · ${filtered.size}", filtered))
+    }
+
+    val startToday = Calendar.getInstance().run {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        timeInMillis
+    }
+    val startYesterday = startToday - DateUtils.DAY_IN_MILLIS
+    val startLastWeek = startToday - DateUtils.DAY_IN_MILLIS * 7
+    val pinned = filtered.filter { it.isPinned }
+    val regular = filtered.filterNot { it.isPinned }
+
+    return buildList {
+        if (pinned.isNotEmpty()) add(HistorySection("pinned", "置顶", pinned))
+        regular.filter { it.updatedAt >= startToday }
+            .takeIf { it.isNotEmpty() }
+            ?.let { add(HistorySection("today", "今天", it)) }
+        regular.filter { it.updatedAt in startYesterday until startToday }
+            .takeIf { it.isNotEmpty() }
+            ?.let { add(HistorySection("yesterday", "昨天", it)) }
+        regular.filter { it.updatedAt in startLastWeek until startYesterday }
+            .takeIf { it.isNotEmpty() }
+            ?.let { add(HistorySection("week", "最近 7 天", it)) }
+        regular.filter { it.updatedAt < startLastWeek }
+            .takeIf { it.isNotEmpty() }
+            ?.let { add(HistorySection("older", "更早", it)) }
     }
 }
 
@@ -1891,7 +2706,9 @@ private enum class PinpinIcon {
     EyeOff,
     Chat,
     Info,
-    Retry
+    Retry,
+    Edit,
+    Copy
 }
 
 @Composable
@@ -2018,6 +2835,40 @@ private fun PinpinIcon(
                     lineTo(w * 0.62f, h * 0.36f)
                 }
                 drawPath(arrow, color)
+            }
+            PinpinIcon.Edit -> {
+                drawLine(
+                    color,
+                    Offset(w * 0.25f, h * 0.73f),
+                    Offset(w * 0.68f, h * 0.3f),
+                    strokeWidth * 1.25f,
+                    StrokeCap.Round
+                )
+                drawLine(
+                    color,
+                    Offset(w * 0.62f, h * 0.24f),
+                    Offset(w * 0.75f, h * 0.37f),
+                    strokeWidth * 1.25f,
+                    StrokeCap.Round
+                )
+                drawLine(
+                    color,
+                    Offset(w * 0.23f, h * 0.77f),
+                    Offset(w * 0.38f, h * 0.73f),
+                    strokeWidth,
+                    StrokeCap.Round
+                )
+            }
+            PinpinIcon.Copy -> {
+                drawRoundRect(
+                    color,
+                    Offset(w * 0.31f, h * 0.27f),
+                    androidx.compose.ui.geometry.Size(w * 0.48f, h * 0.53f),
+                    androidx.compose.ui.geometry.CornerRadius(w * 0.08f),
+                    style = Stroke(strokeWidth)
+                )
+                drawLine(color, Offset(w * 0.22f, h * 0.67f), Offset(w * 0.22f, h * 0.28f), strokeWidth, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.22f, h * 0.28f), Offset(w * 0.62f, h * 0.28f), strokeWidth, StrokeCap.Round)
             }
         }
     }

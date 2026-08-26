@@ -19,6 +19,8 @@ data class ApiSettings(
     val apiKey: String = "",
     val model: String = "",
     val temperature: Float = 0.7f,
+    val includeTemperature: Boolean = true,
+    val streamResponses: Boolean = true,
     val timeoutSeconds: Int = 90,
     val contextMessageLimit: Int = 40,
     val activeRoleId: String = RoleProfile.GENERAL_ID,
@@ -50,6 +52,8 @@ class SettingsStore(context: Context) {
             .putString(KEY_BASE_URL, normalized.baseUrl)
             .putString(KEY_MODEL, normalized.model)
             .putFloat(KEY_TEMPERATURE, normalized.temperature)
+            .putBoolean(KEY_INCLUDE_TEMPERATURE, normalized.includeTemperature)
+            .putBoolean(KEY_STREAM_RESPONSES, normalized.streamResponses)
             .putInt(KEY_TIMEOUT, normalized.timeoutSeconds)
             .putInt(KEY_CONTEXT_LIMIT, normalized.contextMessageLimit)
             .putString(KEY_ACTIVE_ROLE, normalized.activeRoleId)
@@ -80,6 +84,8 @@ class SettingsStore(context: Context) {
             apiKey = encryptedSecret?.let(secretCipher::decrypt).orEmpty(),
             model = preferences.getString(KEY_MODEL, "").orEmpty(),
             temperature = preferences.getFloat(KEY_TEMPERATURE, 0.7f),
+            includeTemperature = preferences.getBoolean(KEY_INCLUDE_TEMPERATURE, true),
+            streamResponses = preferences.getBoolean(KEY_STREAM_RESPONSES, true),
             timeoutSeconds = preferences.getInt(KEY_TIMEOUT, 90),
             contextMessageLimit = preferences.getInt(KEY_CONTEXT_LIMIT, 40),
             activeRoleId = preferences.getString(KEY_ACTIVE_ROLE, RoleProfile.GENERAL_ID)
@@ -96,6 +102,8 @@ class SettingsStore(context: Context) {
         const val KEY_API_SECRET = "api_secret"
         const val KEY_MODEL = "model"
         const val KEY_TEMPERATURE = "temperature"
+        const val KEY_INCLUDE_TEMPERATURE = "include_temperature"
+        const val KEY_STREAM_RESPONSES = "stream_responses"
         const val KEY_TIMEOUT = "timeout"
         const val KEY_CONTEXT_LIMIT = "context_limit"
         const val KEY_ACTIVE_ROLE = "active_role"

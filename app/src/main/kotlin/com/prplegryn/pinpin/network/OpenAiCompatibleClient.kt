@@ -17,12 +17,22 @@ class ApiClientException(
     val statusCode: Int? = null
 ) : Exception(message)
 
+data class ConnectionProbe(
+    val message: String,
+    val models: List<String>
+)
+
 class OpenAiCompatibleClient {
     private val activeConnection = AtomicReference<HttpURLConnection?>(null)
 
     fun validate(settings: ApiSettings): String? {
-        if (settings.baseUrl.isBlank()) return "请填写 API 地址"
+        validateEndpoint(settings)?.let { return it }
         if (settings.model.isBlank()) return "请填写模型名称"
+        return null
+    }
+
+    fun validateEndpoint(settings: ApiSettings): String? {
+        if (settings.baseUrl.isBlank()) return "请填写 API 地址"
         return runCatching { validatedBaseUri(settings.baseUrl) }
             .exceptionOrNull()
             ?.message
@@ -41,8 +51,10 @@ class OpenAiCompatibleClient {
         val endpoint = chatEndpoint(validatedBaseUri(settings.baseUrl))
         val payload = JSONObject().apply {
             put("model", settings.model)
-            put("stream", true)
-            put("temperature", settings.temperature.toDouble())
+            put("stream", settings.streamResponses)
+            if (settings.includeTemperature) {
+                put("temperature", settings.temperature.toDouble())
+            }
             put("messages", JSONArray().apply {
                 if (systemPrompt.isNotBlank()) {
                     put(
@@ -86,7 +98,7 @@ class OpenAiCompatibleClient {
         }
     }
 
-    fun testConnection(settings: ApiSettings): String {
+    fun testConnection(settings: ApiSettings): ConnectionProbe {
         val endpoint = modelsEndpoint(validatedBaseUri(settings.baseUrl))
         val connection = openConnection(endpoint, settings, "GET")
         connection.setRequestProperty("Accept", "application/json")
@@ -95,14 +107,21 @@ class OpenAiCompatibleClient {
             val status = connection.responseCode
             if (status !in 200..299) throw responseError(connection, status)
             val body = readLimited(connection.inputStream, MAX_RESPONSE_CHARS)
-            val model = runCatching {
-                JSONObject(body)
-                    .optJSONArray("data")
-                    ?.optJSONObject(0)
-                    ?.optString("id")
-                    .orEmpty()
-            }.getOrDefault("")
-            if (model.isBlank()) "连接正常" else "连接正常 · $model"
+            val models = runCatching {
+                val data = JSONObject(body).optJSONArray("data") ?: JSONArray()
+                buildList {
+                    repeat(data.length()) { index ->
+                        data.optJSONObject(index)
+                            ?.optString("id")
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let(::add)
+                    }
+                }.distinct().sorted().take(MAX_DISCOVERED_MODELS)
+            }.getOrDefault(emptyList())
+            ConnectionProbe(
+                message = if (models.isEmpty()) "连接正常" else "连接正常 · 找到 ${models.size} 个模型",
+                models = models
+            )
         } finally {
             activeConnection.compareAndSet(connection, null)
             connection.disconnect()
@@ -283,5 +302,6 @@ class OpenAiCompatibleClient {
         const val MAX_RESPONSE_CHARS = 2_000_000
         const val MAX_COMPLETION_CHARS = 200_000
         const val EMIT_INTERVAL_NANOS = 33_000_000L
+        const val MAX_DISCOVERED_MODELS = 60
     }
 }

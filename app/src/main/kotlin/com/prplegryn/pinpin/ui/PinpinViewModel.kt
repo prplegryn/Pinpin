@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.prplegryn.pinpin.data.ApiSettings
+import com.prplegryn.pinpin.data.ChatRepository
 import com.prplegryn.pinpin.data.ConversationEntity
 import com.prplegryn.pinpin.data.MessageEntity
 import com.prplegryn.pinpin.data.PinpinDatabase
@@ -21,8 +22,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,7 +39,8 @@ data class StreamingReply(
 data class ConnectionTestState(
     val running: Boolean = false,
     val result: String? = null,
-    val successful: Boolean = false
+    val successful: Boolean = false,
+    val availableModels: List<String> = emptyList()
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -44,7 +48,7 @@ class PinpinViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
-    private val dao = PinpinDatabase.get(application).pinpinDao()
+    private val repository = ChatRepository(PinpinDatabase.get(application).pinpinDao())
     private val settingsStore = SettingsStore(application)
     private val apiClient = OpenAiCompatibleClient()
     private val connectionTestClient = OpenAiCompatibleClient()
@@ -58,13 +62,13 @@ class PinpinViewModel(
 
     val composerDraft: StateFlow<String> = savedStateHandle.getStateFlow(COMPOSER_DRAFT_KEY, "")
 
-    val conversations: StateFlow<List<ConversationEntity>> = dao.observeConversations()
+    val conversations: StateFlow<List<ConversationEntity>> = repository.conversations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val messages: StateFlow<List<MessageEntity>> = mutableConversationId
         .flatMapLatest { conversationId ->
             if (conversationId == null) flowOf(emptyList())
-            else dao.observeMessages(conversationId)
+            else repository.messages(conversationId)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -94,6 +98,10 @@ class PinpinViewModel(
 
     private val mutableStreamingReply = MutableStateFlow(StreamingReply())
     val streamingReply: StateFlow<StreamingReply> = mutableStreamingReply.asStateFlow()
+    val isStreaming: StateFlow<Boolean> = mutableStreamingReply
+        .map { it.active }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = mutableNotice.asStateFlow()
@@ -124,12 +132,12 @@ class PinpinViewModel(
         viewModelScope.launch {
             val restoredId = mutableConversationId.value
             if (restoredId != null) {
-                val restoredExists = dao.getConversation(restoredId) != null
+                val restoredExists = repository.conversation(restoredId) != null
                 if (selectionTouched) return@launch
                 if (restoredExists) return@launch
                 setConversationId(null)
             }
-            val initialId = dao.getFirstConversationId()
+            val initialId = repository.firstConversationId()
             if (!selectionTouched && mutableConversationId.value == null) {
                 setConversationId(initialId)
             }
@@ -191,8 +199,21 @@ class PinpinViewModel(
 
     fun setPinned(conversation: ConversationEntity) {
         viewModelScope.launch {
-            dao.setPinned(conversation.id, !conversation.isPinned)
+            repository.setPinned(conversation.id, !conversation.isPinned)
         }
+    }
+
+    fun renameConversation(conversationId: Long, title: String): Boolean {
+        val normalized = title.replace(Regex("\\s+"), " ").trim()
+        if (normalized.isEmpty()) {
+            mutableNotice.value = "对话名称不能为空"
+            return false
+        }
+        viewModelScope.launch {
+            runCatching { repository.rename(conversationId, normalized) }
+                .onFailure { mutableNotice.value = "对话名称保存失败，请重试" }
+        }
+        return true
     }
 
     fun deleteConversation(conversationId: Long) {
@@ -204,12 +225,29 @@ class PinpinViewModel(
                 updateComposerDraft("")
                 roleOverride.value = null
             }
-            dao.deleteConversation(conversationId)
+            repository.delete(conversationId)
             if (mutableConversationId.value == null) {
-                setConversationId(dao.getFirstConversationId())
+                setConversationId(repository.firstConversationId())
             }
             mutableCanRetry.value = false
             mutableNeedsSettings.value = false
+        }
+    }
+
+    fun clearAllConversations() {
+        cancelActiveRequest(CancelReason.Delete)
+        selectionTouched = true
+        setConversationId(null)
+        updateComposerDraft("")
+        roleOverride.value = null
+        mutableStreamingReply.value = StreamingReply()
+        lastFailedConversationId = null
+        mutableNotice.value = null
+        mutableCanRetry.value = false
+        mutableNeedsSettings.value = false
+        viewModelScope.launch {
+            runCatching { repository.deleteAll() }
+                .onFailure { mutableNotice.value = "清除对话失败，请重试" }
         }
     }
 
@@ -219,7 +257,7 @@ class PinpinViewModel(
         runCatching { settingsStore.updateActiveRole(roleId) }
             .onFailure { mutableNotice.value = "角色保存失败，请重试" }
         conversationId?.let { id ->
-            viewModelScope.launch { dao.setRole(id, roleId) }
+            viewModelScope.launch { repository.setRole(id, roleId) }
         }
     }
 
@@ -242,7 +280,7 @@ class PinpinViewModel(
     }
 
     fun testSettings(value: ApiSettings) {
-        val error = apiClient.validate(value)
+        val error = apiClient.validateEndpoint(value)
         if (error != null) {
             mutableConnectionTest.value = ConnectionTestState(result = error)
             return
@@ -256,7 +294,13 @@ class PinpinViewModel(
             }
             if (generation == connectionTestGeneration) {
                 mutableConnectionTest.value = result.fold(
-                    onSuccess = { ConnectionTestState(result = it, successful = true) },
+                    onSuccess = {
+                        ConnectionTestState(
+                            result = it.message,
+                            successful = true,
+                            availableModels = it.models
+                        )
+                    },
                     onFailure = {
                         ConnectionTestState(result = readableError(it), successful = false)
                     }
@@ -293,7 +337,7 @@ class PinpinViewModel(
                     content = normalizedText,
                     createdAt = now
                 )
-                val conversationId = targetConversationId ?: dao.createConversationWithFirstMessage(
+                val conversationId = targetConversationId ?: repository.create(
                     conversation = ConversationEntity(
                         title = titleFrom(normalizedText),
                         preview = normalizedText.take(PREVIEW_LIMIT),
@@ -309,7 +353,7 @@ class PinpinViewModel(
                     }
                 }
                 if (targetConversationId != null) {
-                    dao.appendMessageAndTouch(
+                    repository.append(
                         message = firstMessage,
                         preview = normalizedText.take(PREVIEW_LIMIT),
                         updatedAt = now
@@ -348,13 +392,50 @@ class PinpinViewModel(
         val selectedRoleId = selectedRoleIdForCurrentConversation()
         viewModelScope.launch {
             try {
-                dao.deleteFailedReplies(conversationId)
+                repository.deleteFailedReplies(conversationId)
                 completeConversation(conversationId, currentSettings, selectedRoleId, control)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
                 if (activeRequest === control) {
                     mutableNotice.value = "本地记录无法更新，请稍后重试"
+                }
+            } finally {
+                if (activeRequest === control) {
+                    activeRequest = null
+                    mutableStreamingReply.value = StreamingReply()
+                }
+            }
+        }
+    }
+
+    fun regenerateReply(messageId: Long) {
+        val conversationId = mutableConversationId.value ?: return
+        if (activeRequest != null) return
+        val currentSettings = settings.value
+        apiClient.validate(currentSettings)?.let { error ->
+            mutableNotice.value = error
+            mutableNeedsSettings.value = true
+            return
+        }
+        val control = RequestControl()
+        activeRequest = control
+        mutableStreamingReply.value = StreamingReply(conversationId = conversationId, active = true)
+        val selectedRoleId = selectedRoleIdForCurrentConversation()
+        viewModelScope.launch {
+            try {
+                if (!repository.removeLastAssistantReply(conversationId, messageId)) {
+                    mutableNotice.value = "只能重新生成当前对话的最后一条回复"
+                    mutableCanRetry.value = false
+                    return@launch
+                }
+                completeConversation(conversationId, currentSettings, selectedRoleId, control)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (activeRequest === control) {
+                    mutableNotice.value = "无法重新生成回复，请稍后重试"
+                    mutableCanRetry.value = true
                 }
             } finally {
                 if (activeRequest === control) {
@@ -385,7 +466,7 @@ class PinpinViewModel(
             mutableStreamingReply.value = StreamingReply(conversationId = conversationId, active = true)
         }
 
-        if (dao.getConversation(conversationId) == null || control.cancelReason == CancelReason.Delete) {
+        if (repository.conversation(conversationId) == null || control.cancelReason == CancelReason.Delete) {
             if (activeRequest === control) {
                 activeRequest = null
                 mutableStreamingReply.value = StreamingReply()
@@ -396,7 +477,7 @@ class PinpinViewModel(
             .firstOrNull { it.id == selectedRoleId }
             ?: RoleProfile.all(currentSettings).first()
         val context = trimContext(
-            dao.getContextMessages(
+            repository.context(
                 conversationId,
                 currentSettings.contextMessageLimit
             )
@@ -429,7 +510,7 @@ class PinpinViewModel(
             }
             if (answer.isEmpty()) throw ApiClientException("服务没有返回文字内容")
             val completedAt = System.currentTimeMillis()
-            dao.appendMessageAndTouch(
+            repository.append(
                 message = MessageEntity(
                     conversationId = conversationId,
                     role = MessageEntity.ROLE_ASSISTANT,
@@ -450,7 +531,7 @@ class PinpinViewModel(
             if (cancelledByUser || navigatedAway || deletingConversation) {
                 if (partial.isNotEmpty() && !deletingConversation) {
                     val stoppedAt = System.currentTimeMillis()
-                    dao.appendMessageAndTouch(
+                    repository.append(
                         message = MessageEntity(
                             conversationId = conversationId,
                             role = MessageEntity.ROLE_ASSISTANT,
@@ -468,7 +549,7 @@ class PinpinViewModel(
                     mutableNeedsSettings.value = false
                 }
             } else {
-                dao.insertMessage(
+                repository.insert(
                     MessageEntity(
                         conversationId = conversationId,
                         role = MessageEntity.ROLE_ASSISTANT,

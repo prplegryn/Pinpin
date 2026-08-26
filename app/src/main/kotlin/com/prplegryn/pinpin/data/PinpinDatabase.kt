@@ -114,6 +114,15 @@ interface PinpinDao {
     @Query("SELECT * FROM conversations WHERE id = :conversationId LIMIT 1")
     suspend fun getConversation(conversationId: Long): ConversationEntity?
 
+    @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
+    suspend fun getMessage(messageId: Long): MessageEntity?
+
+    @Query(
+        "SELECT * FROM messages WHERE conversationId = :conversationId " +
+            "ORDER BY createdAt DESC, id DESC LIMIT 1"
+    )
+    suspend fun getLastMessage(conversationId: Long): MessageEntity?
+
     @Query("SELECT id FROM conversations ORDER BY isPinned DESC, updatedAt DESC, id DESC LIMIT 1")
     suspend fun getFirstConversationId(): Long?
 
@@ -164,8 +173,39 @@ interface PinpinDao {
     @Query("UPDATE conversations SET roleId = :roleId WHERE id = :conversationId")
     suspend fun setRole(conversationId: Long, roleId: String)
 
+    @Query("UPDATE conversations SET title = :title, updatedAt = :updatedAt WHERE id = :conversationId")
+    suspend fun renameConversation(conversationId: Long, title: String, updatedAt: Long)
+
     @Query("DELETE FROM conversations WHERE id = :conversationId")
     suspend fun deleteConversation(conversationId: Long)
+
+    @Query("DELETE FROM conversations")
+    suspend fun deleteAllConversations()
+
+    @Query("DELETE FROM messages WHERE id = :messageId AND conversationId = :conversationId")
+    suspend fun deleteMessage(conversationId: Long, messageId: Long)
+
+    @Transaction
+    suspend fun removeLastAssistantReply(conversationId: Long, messageId: Long): Boolean {
+        val message = getMessage(messageId) ?: return false
+        if (
+            message.conversationId != conversationId ||
+            message.role != MessageEntity.ROLE_ASSISTANT ||
+            getLastMessage(conversationId)?.id != messageId
+        ) {
+            return false
+        }
+        deleteMessage(conversationId, messageId)
+        val fallback = getLastMessage(conversationId)
+        if (fallback != null) {
+            touchConversation(
+                conversationId = conversationId,
+                preview = fallback.content.take(80),
+                updatedAt = fallback.createdAt
+            )
+        }
+        return true
+    }
 
     @Query(
         "DELETE FROM messages WHERE conversationId = :conversationId " +
