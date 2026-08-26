@@ -4,13 +4,10 @@ import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -58,7 +55,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.animateItem
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -735,9 +731,10 @@ private fun MessageBubble(
                                 interactionSource = interactionSource,
                                 indication = null,
                                 role = Role.Button,
+                                onClickLabel = "消息操作",
                                 onLongClickLabel = "消息操作",
                                 onLongClick = onLongPress,
-                                onClick = {}
+                                onClick = onLongPress
                             )
                     } else {
                         Modifier
@@ -1094,11 +1091,12 @@ private fun BoxScope.AdaptiveComposer(
         AnimatedVisibility(
             visible = text.isNotBlank() || isStreaming,
             modifier = Modifier.padding(start = 8.dp),
-            enter = fadeIn(tween(120)) + scaleIn(
-                animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
+            enter = fadeIn(PinpinMotion.quickTween()) + scaleIn(
+                animationSpec = PinpinMotion.expressiveSpring(),
                 initialScale = 0.82f
             ),
-            exit = fadeOut(tween(90)) + scaleOut(tween(110), targetScale = 0.82f)
+            exit = fadeOut(PinpinMotion.quickTween()) +
+                scaleOut(PinpinMotion.quickTween(), targetScale = 0.82f)
         ) {
             ComposerButton(
                 stopping = isStreaming,
@@ -1115,7 +1113,7 @@ private fun BoxScope.ComposerSurface(
 ) {
     val progress by animateFloatAsState(
         targetValue = if (keyboardExpanded) 1f else 0f,
-        animationSpec = tween(durationMillis = 130),
+        animationSpec = PinpinMotion.quickTween(),
         label = "composer IME geometry"
     )
     val horizontalMargin = 18.dp + (8.dp - 18.dp) * progress
@@ -1133,7 +1131,7 @@ private fun BoxScope.ComposerSurface(
             .fillMaxWidth()
             .appleAmbientShadow(shape = shape, radius = 22.dp, alpha = 0.105f)
             .heightIn(min = minimumHeight, max = 132.dp)
-            .animateContentSize(animationSpec = tween(durationMillis = 140))
+            .animateContentSize(animationSpec = PinpinMotion.quickTween())
             .clip(shape)
             .background(Color.White)
             .border(0.75.dp, ThinBorder, shape)
@@ -1200,8 +1198,9 @@ private fun BoxScope.NoticeBanner(
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
             .padding(start = 22.dp, end = 22.dp, bottom = 86.dp),
-        enter = fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.96f),
-        exit = fadeOut(tween(100))
+        enter = fadeIn(PinpinMotion.quickTween()) +
+            scaleIn(PinpinMotion.expressiveSpring(), initialScale = 0.96f),
+        exit = fadeOut(PinpinMotion.quickTween())
     ) {
         val shape = RoundedCornerShape(22.dp)
         Row(
