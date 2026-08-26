@@ -65,7 +65,8 @@ jobs:
         run: |
           expected="717e4c8025d288331bb323800eb759d478f9e71bc3ca9db5cad613881081116f"
           apk="app/build/outputs/apk/release/app-release.apk"
-          actual=$("$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          certs=$("$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$apk")
+          actual=$(printf '%s\n' "$certs" | awk '/certificate SHA-256 digest:/ {print $NF; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
           test "$actual" = "$expected"
           echo "Verified fixed release certificate: $actual"
 
