@@ -1,6 +1,6 @@
 # Pinpin
 
-Pinpin 是一个 Android 原生单页视觉原型，使用 Jetpack Compose 与 [Backdrop / AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 实现液态玻璃控件。
+Pinpin 是一个本地优先的 Android 原生聊天客户端，使用 Jetpack Compose 与 [Backdrop / AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 实现液态玻璃控件，并支持用户自定义 OpenAI-compatible API。
 
 ## 当前界面
 
@@ -16,6 +16,22 @@ Pinpin 是一个 Android 原生单页视觉原型，使用 Jetpack Compose 与 [
 - 界面文字使用随应用打包的 Inter 4.1；Inter 未包含的中文字形由系统字体回退。
 - 所有内容均在圆角裁剪和内部安全边距中，不会渗入药丸圆角区域。
 - Android 12L / API 32 以下会由 Backdrop 自动跳过系统不支持的运行时着色器，保留可用的半透明表面。
+
+## 聊天与会话
+
+- 菜单按钮打开模态侧边栏；顶部可搜索本地聊天历史，底部提供角色切换和设置入口。
+- 历史按“置顶优先、更新时间倒序”排列，整行支持长按管理，可置顶、取消置顶或经确认后级联删除。
+- 会话与消息由 Room 持久化；当前会话和未发送草稿可在配置变化或系统回收进程后恢复。
+- 支持停止流式回复、保存部分结果、规范化网络错误和不重复用户消息的失败重试。
+- 内置通用、写作、技术和自定义角色。角色属于会话，切换只影响之后的请求，不改写历史内容。
+
+## 自定义 API
+
+- 设置页可填写 API 地址、可选 bearer key、模型、温度、无数据超时、上下文条数和自定义角色说明。
+- 请求兼容常见 Chat Completions：自动补全 `/chat/completions`，解析 SSE `data:` / `[DONE]`，并兼容普通 JSON 响应。
+- 默认只允许 HTTPS；HTTP 仅放行 `localhost`、`127.0.0.1` 和 Android 模拟器宿主地址 `10.0.2.2`。
+- API key 由 Android Keystore 的 AES-GCM 密钥加密后写入应用私有偏好设置，不进入日志、Git 或系统备份。
+- 移动客户端必须在发请求时解密用户密钥。高权限密钥建议放在用户自己的 HTTPS 网关后，而不是直接长期保存在手机上。
 
 ## 构建
 
@@ -39,10 +55,13 @@ Release 筿名与密钥通过四个 GitHub Actions secrets 注入：
 
 - Android Gradle Plugin 9.3.2 / Gradle 9.7.1
 - Kotlin 2.4.10 / Compose 1.12.0
+- Lifecycle 2.11.0 / Room 2.8.4 / KSP 2.3.10
 - Backdrop 2.0.1 / Kyant Shapes 1.2.1
 - minSdk 23 / targetSdk 36
 
 玻璃参数参考了 Backdrop 的 [Get started](https://kyant.gitbook.io/backdrop) 文档与官方 `LiquidButton` 示例；该库只提供底层效果，本仓库的高层控件与自适应输入行为均在项目内实现。
+
+侧边栏、数据、安全、API 和性能的研究依据、状态机与多轮检查记录见 [设计与工程研究底稿](docs/report-source.md)。
 
 ## 签名
 

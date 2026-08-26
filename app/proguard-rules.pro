@@ -2,7 +2,7 @@
 -keepattributes *Annotation*
 
 # Backdrop is a Compose-only rendering library. Its public API is referenced
-# directly, but keeping the package makes release behavior deterministic across
-# R8 updates while the project is still in its visual-prototype phase.
+# directly, but keeping the package makes its runtime-shader behavior
+# deterministic across R8 updates.
 -keep class com.kyant.backdrop.** { *; }
 -dontwarn org.jetbrains.annotations.**
