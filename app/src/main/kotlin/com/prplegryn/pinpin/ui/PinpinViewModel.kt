@@ -81,7 +81,7 @@ class PinpinViewModel(
         settings,
         roleOverride
     ) { conversation, currentSettings, override ->
-        if (override?.first == conversation?.id) {
+        if (override != null && override.first == conversation?.id) {
             override.second
         } else {
             conversation?.roleId ?: currentSettings.activeRoleId
