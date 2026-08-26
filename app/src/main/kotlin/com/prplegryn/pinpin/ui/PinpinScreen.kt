@@ -463,8 +463,10 @@ private fun GlassTitle(
         val content = measurables.single().measure(
             Constraints.fixed(targetWidth.roundToPx(), 52.dp.roundToPx())
         )
-        val layoutWidth = constraints.constrainWidth(animatedWidth.value.roundToPx())
-        val layoutHeight = constraints.constrainHeight(52.dp.roundToPx())
+        val layoutWidth = animatedWidth.value.roundToPx()
+            .coerceIn(constraints.minWidth, constraints.maxWidth)
+        val layoutHeight = 52.dp.roundToPx()
+            .coerceIn(constraints.minHeight, constraints.maxHeight)
         layout(layoutWidth, layoutHeight) {
             content.placeRelative(0, 0)
         }
