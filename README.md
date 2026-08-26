@@ -4,10 +4,13 @@ Pinpin 是一个 Android 原生单页视觉原型，使用 Jetpack Compose 与 [
 
 ## 当前界面
 
-- 复杂的自然摄影背景，用来观察玻璃的折射、模糊、色彩增强与边缘高光。
-- 顶部为菜单按钮、带头像的标题胶囊和更多按钮；三个控件使用高透明度液态玻璃。
-- 底部为较高不透明度的磨砂输入药丸，支持 1–4 行输入。
-- 输入框会根据键盘、焦点与文本状态平滑改变左右边距、底部间距、最小高度、提示文字和发送按钮。
+- 明亮、复杂的自然摄影背景，用来观察玻璃的折射、模糊、色彩增强与边缘高光。
+- 顶部左侧为菜单按钮和按内容自适应宽度的标题胶囊，更多按钮独立贴右；三个控件使用高透明度液态玻璃。
+- 顶部控件复用了 Backdrop 官方 `LiquidButton` 的按压高光、弹性缩放和拖拽方向形变，并保留玻璃边缘高光。
+- 底部为纯白输入药丸，支持 1–4 行输入，不再使用玻璃或磨砂背景。
+- 输入框根据 IME 动画目标立即切换边距与高度，避免键盘收起后的状态延迟；文本状态会切换语音/发送按钮。
+- 所有控件使用零偏移、向四周扩散的环境投影，不使用 Material 风格的单向投影。
+- 界面文字使用随应用打包的 Inter 4.1；Inter 未包含的中文字形由系统字体回退。
 - 所有内容均在圆角裁剪和内部安全边距中，不会渗入药丸圆角区域。
 - Android 12L / API 32 以下会由 Backdrop 自动跳过系统不支持的运行时着色器，保留可用的半透明表面。
 
@@ -15,8 +18,8 @@ Pinpin 是一个 Android 原生单页视觉原型，使用 Jetpack Compose 与 [
 
 项目约定不在本地执行任何 Gradle 或 Android 编译。所有验证与产物都由 [GitHub Actions](https://github.com/prplegryn/Pinpin/actions) 完成：
 
-1. `main` 分支的 push 会执行 release lint，并生成固定签名的 APK 与 AAB。
-2. 工作流会上传 APK、AAB、SHA-256 校验文件和 lint 报告。
+1. `main` 分支的 push 会执行 release lint，并只构建固定签名 APK，不构建 AAB。
+2. 工作流只把 APK 作为可下载产物上传，不附带校验包或 lint 报告。
 3. 外部 fork 的 Pull Request 无法读取仓库签名 secrets，因此只构建 debug 作为安全回退。
 4. 也可以在 Actions 页手动运行 `Android` 工作流。
 
@@ -46,7 +49,9 @@ Release 证书（SHA-256）：
 
 ## 背景资产
 
-`app/src/main/res/drawable-nodpi/pinpin_alpine_lake.png` 由 OpenAI 内置 image generation 生成，提示目标是竖屏、写实的雾中高山湖泊摄影，保留前中后景细节与顶部/底部较暗区域，以检验半透明玻璃效果。图中不含人物、文字、标志或 UI。
+`app/src/main/res/drawable-nodpi/pinpin_sunlit_valley.png` 由 OpenAI 内置 image generation 生成。提示目标是 9:16 竖屏、明亮写实的雨后高山湖泊与草甸摄影，包含晴空、云层、岩石、碧水和细密植被，以检验透明玻璃的折射、边缘高光和环境阴影；图中不含人物、文字、标志或 UI。
+
+Inter 字体来自 [rsms/inter](https://github.com/rsms/inter) v4.1，使用 SIL Open Font License 1.1，许可文本位于 `licenses/Inter-OFL.txt`。
 
 ## License
 

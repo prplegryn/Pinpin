@@ -3,15 +3,13 @@ package com.prplegryn.pinpin.ui
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -23,13 +21,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -40,34 +39,43 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.shadow.Shadow as ComposeShadow
+import androidx.compose.ui.util.fastCoerceAtMost
+import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -75,14 +83,27 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.Shadow as BackdropShadow
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.prplegryn.pinpin.R
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.tanh
 
 private val PrimaryText = Color(0xFFF5FBFF)
 private val SecondaryText = Color(0xBFD8E8EF)
-private val Accent = Color(0xFF78DBFF)
+private val ComposerText = Color(0xFF172126)
+private val ComposerSecondary = Color(0xFF68737A)
+private val Accent = Color(0xFF087CFA)
+private val Inter = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold)
+)
 
 @Composable
 fun PinpinApp() {
@@ -97,7 +118,7 @@ private fun PinpinScreen() {
 
     Box(Modifier.fillMaxSize()) {
         Image(
-            painter = painterResource(R.drawable.pinpin_alpine_lake),
+            painter = painterResource(R.drawable.pinpin_sunlit_valley),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -105,17 +126,17 @@ private fun PinpinScreen() {
                 .fillMaxSize()
         )
 
-        // Preserve the photographic detail while giving white glass controls a
-        // stable contrast floor at both system-bar edges.
+        // A light, restrained contrast veil keeps the controls readable without
+        // muting the bright landscape that drives the glass refraction.
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color(0x57020B11),
+                        0f to Color(0x34020B11),
                         0.22f to Color.Transparent,
                         0.68f to Color.Transparent,
-                        1f to Color(0x8A02090E)
+                        1f to Color(0x3D02090E)
                     )
                 )
         )
@@ -132,10 +153,7 @@ private fun PinpinScreen() {
             }
         )
 
-        AdaptiveComposer(
-            backdrop = backdrop,
-            onSend = { subtitle = "刚刚发送" }
-        )
+        AdaptiveComposer(onSend = { subtitle = "刚刚发送" })
     }
 }
 
@@ -153,7 +171,6 @@ private fun BoxScope.TopBar(
             .statusBarsPadding()
             .fillMaxWidth()
             .padding(horizontal = 18.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         GlassIconButton(
@@ -163,12 +180,15 @@ private fun BoxScope.TopBar(
             onClick = onMenuClick
         )
 
+        Spacer(Modifier.width(9.dp))
+
         GlassTitle(
             backdrop = backdrop,
             subtitle = subtitle,
-            modifier = Modifier.weight(1f),
             onClick = onTitleClick
         )
+
+        Spacer(Modifier.weight(1f))
 
         GlassIconButton(
             backdrop = backdrop,
@@ -187,7 +207,10 @@ private fun GlassIconButton(
     onClick: () -> Unit
 ) {
     val shape = remember { Capsule() }
-    val interactionSource = remember { MutableInteractionSource() }
+    val animationScope = rememberCoroutineScope()
+    val interactiveHighlight = remember(animationScope) {
+        InteractiveHighlight(animationScope)
+    }
 
     Box(
         modifier = Modifier
@@ -198,21 +221,44 @@ private fun GlassIconButton(
                 effects = {
                     vibrancy()
                     blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx(), depthEffect = true)
+                    lens(12.dp.toPx(), 24.dp.toPx())
                 },
-                highlight = { Highlight.Plain },
+                shadow = {
+                    BackdropShadow(
+                        radius = 18.dp,
+                        offset = DpOffset(0.dp, 0.dp),
+                        color = Color.Black.copy(alpha = 0.18f)
+                    )
+                },
+                layerBlock = {
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
+                    val maxOffset = size.minDimension
+                    val offset = interactiveHighlight.offset
+                    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+
+                    val maxDragScale = 4.dp.toPx() / size.height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale + maxDragScale *
+                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                        (size.width / size.height).fastCoerceAtMost(1f)
+                    scaleY = scale + maxDragScale *
+                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                        (size.height / size.width).fastCoerceAtMost(1f)
+                },
                 onDrawSurface = {
-                    drawRect(Color.White.copy(alpha = 0.12f))
-                    drawRect(Color(0xFF9DE8FF).copy(alpha = 0.05f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.075f))
                 }
             )
-            .clip(shape)
             .clickable(
-                interactionSource = interactionSource,
+                interactionSource = null,
                 indication = null,
                 role = Role.Button,
                 onClick = onClick
             )
+            .then(interactiveHighlight.modifier)
+            .then(interactiveHighlight.gestureModifier)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center
     ) {
@@ -224,34 +270,62 @@ private fun GlassIconButton(
 private fun GlassTitle(
     backdrop: Backdrop,
     subtitle: String,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val shape = remember { Capsule() }
-    val interactionSource = remember { MutableInteractionSource() }
+    val animationScope = rememberCoroutineScope()
+    val interactiveHighlight = remember(animationScope) {
+        InteractiveHighlight(animationScope)
+    }
 
     Row(
-        modifier = modifier
+        modifier = Modifier
             .height(52.dp)
+            .widthIn(max = 210.dp)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
                     vibrancy()
                     blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx(), depthEffect = true)
+                    lens(12.dp.toPx(), 24.dp.toPx())
                 },
-                highlight = { Highlight.Plain },
-                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.12f)) }
+                shadow = {
+                    BackdropShadow(
+                        radius = 18.dp,
+                        offset = DpOffset(0.dp, 0.dp),
+                        color = Color.Black.copy(alpha = 0.18f)
+                    )
+                },
+                layerBlock = {
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
+                    val maxOffset = size.minDimension
+                    val offset = interactiveHighlight.offset
+                    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+
+                    val maxDragScale = 4.dp.toPx() / size.height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale + maxDragScale *
+                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                        (size.width / size.height).fastCoerceAtMost(1f)
+                    scaleY = scale + maxDragScale *
+                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                        (size.height / size.width).fastCoerceAtMost(1f)
+                },
+                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.075f)) }
             )
-            .clip(shape)
             .clickable(
-                interactionSource = interactionSource,
+                interactionSource = null,
                 indication = null,
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(horizontal = 6.dp),
+            .then(interactiveHighlight.modifier)
+            .then(interactiveHighlight.gestureModifier)
+            .semantics { contentDescription = "打开对话详情" }
+            .padding(start = 6.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -271,14 +345,15 @@ private fun GlassTitle(
                 style = TextStyle(
                     color = Color.White,
                     fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = Inter
                 )
             )
         }
 
         Spacer(Modifier.width(10.dp))
 
-        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+        androidx.compose.foundation.layout.Column {
             BasicText(
                 text = "Pinpin",
                 maxLines = 1,
@@ -286,7 +361,8 @@ private fun GlassTitle(
                 style = TextStyle(
                     color = PrimaryText,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = Inter
                 )
             )
             BasicText(
@@ -296,49 +372,49 @@ private fun GlassTitle(
                 style = TextStyle(
                     color = SecondaryText,
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = Inter
                 )
             )
         }
-
-        Spacer(Modifier.width(8.dp))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BoxScope.AdaptiveComposer(
-    backdrop: Backdrop,
     onSend: (String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
-    var focused by remember { mutableStateOf(false) }
-    val imeVisible = WindowInsets.isImeVisible
     val canSend = text.isNotBlank()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val imeTargetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+
+    // imeAnimationTarget changes at the beginning of an IME transition. Using
+    // it avoids waiting for isImeVisible to turn false at the end of dismissal.
+    val keyboardExpanded = if (imeTargetBottom != imeBottom) {
+        imeTargetBottom > 0
+    } else {
+        imeBottom > 0
+    }
 
     val horizontalMargin by animateDpAsState(
-        targetValue = when {
-            imeVisible -> 8.dp
-            focused || canSend -> 12.dp
-            else -> 18.dp
-        },
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 480f),
+        targetValue = if (keyboardExpanded) 8.dp else 18.dp,
+        animationSpec = tween(durationMillis = 130),
         label = "composer horizontal margin"
     )
     val bottomMargin by animateDpAsState(
-        targetValue = if (imeVisible) 7.dp else 12.dp,
+        targetValue = if (keyboardExpanded) 7.dp else 12.dp,
+        animationSpec = tween(durationMillis = 130),
         label = "composer bottom margin"
     )
     val minimumHeight by animateDpAsState(
-        targetValue = if (imeVisible) 56.dp else if (focused || canSend) 60.dp else 64.dp,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 520f),
+        targetValue = if (keyboardExpanded) 56.dp else 64.dp,
+        animationSpec = tween(durationMillis = 130),
         label = "composer minimum height"
-    )
-    val surfaceAlpha by animateFloatAsState(
-        targetValue = if (imeVisible || focused) 0.86f else 0.78f,
-        label = "composer opacity"
     )
 
     fun send() {
@@ -363,25 +439,11 @@ private fun BoxScope.AdaptiveComposer(
             )
             .fillMaxWidth()
             .heightIn(min = minimumHeight, max = 132.dp)
-            .animateContentSize(
-                animationSpec = spring(dampingRatio = 0.86f, stiffness = 520f)
-            )
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    blur(12.dp.toPx())
-                    lens(6.dp.toPx(), 10.dp.toPx())
-                },
-                highlight = { Highlight.Plain },
-                onDrawSurface = {
-                    drawRect(Color(0xFF07161E).copy(alpha = surfaceAlpha))
-                    drawRect(Color(0xFFBFEFFF).copy(alpha = 0.035f), blendMode = BlendMode.Screen)
-                }
-            )
+            .animateContentSize(animationSpec = tween(durationMillis = 140))
+            .appleAmbientShadow(shape = shape, radius = 18.dp, alpha = 0.22f)
             .clip(shape)
-            .border(0.75.dp, Color.White.copy(alpha = 0.26f), shape)
+            .background(Color.White)
+            .border(0.75.dp, Color.Black.copy(alpha = 0.055f), shape)
             .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -398,13 +460,13 @@ private fun BoxScope.AdaptiveComposer(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
-                .heightIn(min = 24.dp, max = 92.dp)
-                .onFocusChanged { focused = it.isFocused },
+                .heightIn(min = 24.dp, max = 92.dp),
             textStyle = TextStyle(
-                color = PrimaryText,
+                color = ComposerText,
                 fontSize = 16.sp,
                 lineHeight = 21.sp,
-                fontWeight = FontWeight.Normal
+                fontWeight = FontWeight.Normal,
+                fontFamily = Inter
             ),
             cursorBrush = SolidColor(Accent),
             minLines = 1,
@@ -418,10 +480,11 @@ private fun BoxScope.AdaptiveComposer(
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (text.isEmpty()) {
                         BasicText(
-                            text = if (imeVisible) "输入消息…" else "说点什么…",
+                            text = if (keyboardExpanded) "输入消息…" else "说点什么…",
                             style = TextStyle(
-                                color = SecondaryText.copy(alpha = 0.74f),
-                                fontSize = 16.sp
+                                color = ComposerSecondary,
+                                fontSize = 16.sp,
+                                fontFamily = Inter
                             )
                         )
                     }
@@ -432,7 +495,7 @@ private fun BoxScope.AdaptiveComposer(
 
         Crossfade(
             targetState = canSend,
-            animationSpec = spring(dampingRatio = 0.9f, stiffness = 700f),
+            animationSpec = tween(durationMillis = 120),
             label = "send control"
         ) { sendingEnabled ->
             ComposerButton(
@@ -453,17 +516,22 @@ private fun ComposerButton(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val background = if (emphasized) Accent else Color.White.copy(alpha = 0.09f)
-    val foreground = if (emphasized) Color(0xFF06222C) else PrimaryText
+    val background = if (emphasized) Accent else Color(0xFFF0F2F4)
+    val foreground = if (emphasized) Color.White else ComposerText
 
     Box(
         modifier = Modifier
             .size(42.dp)
+            .appleAmbientShadow(
+                shape = CircleShape,
+                radius = if (emphasized) 8.dp else 6.dp,
+                alpha = if (emphasized) 0.18f else 0.11f
+            )
             .clip(CircleShape)
             .background(background)
             .then(
                 if (emphasized) Modifier
-                else Modifier.border(0.75.dp, Color.White.copy(alpha = 0.17f), CircleShape)
+                else Modifier.border(0.75.dp, Color.Black.copy(alpha = 0.045f), CircleShape)
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -585,4 +653,18 @@ private fun PinpinIcon(
 }
 
 private fun backgroundForCutout(emphasizedColor: Color): Color =
-    if (emphasizedColor == Color(0xFF06222C)) Accent else Color.Transparent
+    if (emphasizedColor == Color.White) Accent else Color.Transparent
+
+private fun Modifier.appleAmbientShadow(
+    shape: Shape,
+    radius: Dp,
+    alpha: Float
+): Modifier = dropShadow(
+    shape = shape,
+    shadow = ComposeShadow(
+        radius = radius,
+        spread = 0.5.dp,
+        offset = DpOffset(0.dp, 0.dp),
+        color = Color.Black.copy(alpha = alpha)
+    )
+)
