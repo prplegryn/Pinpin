@@ -171,10 +171,10 @@ class PinpinViewModel(
                 if (activeRequest == null && replyCanBeRetried) {
                     lastFailedConversationId = conversationId
                     mutableCanRetry.value = true
-                    mutableNeedsSettings.value = lastMessage?.errorCode
+                    mutableNeedsSettings.value = lastMessage.errorCode
                         ?.let { it in SETTINGS_ERROR_CODES } == true
                     if (mutableNotice.value == null) {
-                        mutableNotice.value = lastMessage?.error ?: "上次回复未完成"
+                        mutableNotice.value = lastMessage.error ?: "上次回复未完成"
                     }
                 }
             }

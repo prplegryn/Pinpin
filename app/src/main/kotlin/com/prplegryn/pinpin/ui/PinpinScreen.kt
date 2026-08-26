@@ -1,5 +1,6 @@
 package com.prplegryn.pinpin.ui
 
+import android.content.ClipData
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -96,7 +97,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -105,7 +107,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
@@ -141,6 +142,7 @@ import com.prplegryn.pinpin.data.MessageEntity
 import com.prplegryn.pinpin.data.RoleProfile
 import java.util.Calendar
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -224,7 +226,8 @@ private fun PinpinScreen(
     val backdrop = rememberLayerBackdrop()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val uiScope = rememberCoroutineScope()
     var page by rememberSaveable { mutableStateOf(AppPage.Chat) }
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var rolePickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -492,9 +495,17 @@ private fun PinpinScreen(
                 target = target,
                 onDismiss = { messageAction = null },
                 onCopy = {
-                    clipboard.setText(AnnotatedString(target.message.content))
                     messageAction = null
-                    copiedFeedback = true
+                    uiScope.launch {
+                        val copied = runCatching {
+                            clipboard.setClipEntry(
+                                ClipEntry(
+                                    ClipData.newPlainText("Pinpin message", target.message.content)
+                                )
+                            )
+                        }.isSuccess
+                        copiedFeedback = copied
+                    }
                 },
                 onRegenerate = {
                     messageAction = null
@@ -3017,8 +3028,8 @@ private fun PinpinIcon(
             PinpinIcon.Eye, PinpinIcon.EyeOff -> {
                 val path = Path().apply {
                     moveTo(w * 0.14f, h * 0.5f)
-                    quadraticBezierTo(w * 0.5f, h * 0.15f, w * 0.86f, h * 0.5f)
-                    quadraticBezierTo(w * 0.5f, h * 0.85f, w * 0.14f, h * 0.5f)
+                    quadraticTo(w * 0.5f, h * 0.15f, w * 0.86f, h * 0.5f)
+                    quadraticTo(w * 0.5f, h * 0.85f, w * 0.14f, h * 0.5f)
                 }
                 drawPath(path, color, style = Stroke(strokeWidth, cap = StrokeCap.Round))
                 drawCircle(color, w * 0.1f, Offset(w * 0.5f, h * 0.5f), style = Stroke(strokeWidth))
